@@ -1,0 +1,83 @@
+# =============================================================================
+# liquidVE — repository ignore rules
+# Never commit secrets, local databases, virtual environments or tool caches.
+# =============================================================================
+
+# --- Python bytecode and packaging -------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+wheels/
+pip-wheel-metadata/
+__pypackages__/
+
+# --- Virtual environments -----------------------------------------------------
+.venv/
+venv/
+env/
+ENV/
+.venv-*/
+.env-*/
+
+# --- Type checking / linting / test caches -----------------------------------
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytest_cache/
+.hypothesis/
+.pytype/
+.pyre/
+.pyright/
+
+# --- Coverage reports ---------------------------------------------------------
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+*.cover
+nosetests.xml
+
+# --- Local environment and secrets -------------------------------------------
+.env
+.env.*
+!.env.example
+!.env.*.example
+secrets/
+*.pem
+*.key
+
+# --- Runtime data (SQLite, WAL, backups, logs) --------------------------------
+data/*
+!data/.gitkeep
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3
+*.sqlite3-journal
+logs/
+*.log
+
+# --- Playwright / browser automation artifacts --------------------------------
+playwright-report/
+test-results/
+blob-report/
+.playwright/
+.playwright-cli/
+
+# --- Container / OS / editors -------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- local notes / stale planning documents ------------------------------------
+# Local-only spec snapshot; keep it out of the published repository.
+PROJECT_SPEC.md
