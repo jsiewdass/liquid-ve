@@ -7,7 +7,6 @@ The gateway authenticates with a bearer token and accepts an
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -15,7 +14,6 @@ from pydantic import BaseModel, Field
 
 from app.core.config import Settings
 from app.core.exceptions import ExternalServiceResponseError
-from app.domain.enums import BankCode
 from app.infrastructure.clients.base import BaseAsyncHTTPClient
 
 _MESSAGES_PATH = "/messages"
@@ -202,37 +200,6 @@ class SmsGatewayClient(BaseAsyncHTTPClient):
     async def health_check(self) -> bool:
         """Return whether the SMS gateway is reachable."""
         return await self._safe_health_check(_HEALTH_PATH)
-
-    @staticmethod
-    def build_payment_sms(
-        *,
-        amount_ves: Decimal,
-        destination_phone: str,
-        bank_code: BankCode,
-        reference: str,
-        concept: str,
-    ) -> str:
-        """Build the deterministic outgoing mobile-payment instruction.
-
-        The text is end-user content and is intentionally written in Spanish.
-
-        Args:
-            amount_ves: Amount to pay in VES.
-            destination_phone: Destination phone number.
-            bank_code: Destination bank.
-            reference: Bank reference to quote.
-            concept: Payment concept.
-
-        Returns:
-            The SMS body with amounts formatted using comma thousands and dot
-            decimals.
-        """
-        formatted_amount = f"{amount_ves:,.2f}"
-        return (
-            f"liquidVE | Pago movil {bank_code.display_name}: "
-            f"envia Bs {formatted_amount} al {destination_phone}. "
-            f"Referencia: {reference}. Concepto: {concept}."
-        )
 
 
 __all__ = ["SmsGatewayClient", "SmsSendResult", "IncomingSms"]

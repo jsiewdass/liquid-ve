@@ -188,23 +188,36 @@ class BinanceC2CClient(BaseAsyncHTTPClient):
         rows: int = 20,
         start_timestamp: int | None = None,
         end_timestamp: int | None = None,
+        trade_type: OrderType | str | None = None,
+        order_status: str | None = None,
     ) -> list[BinanceC2COrder]:
-        """Return recent C2C orders.
+        """Return recent C2C orders, optionally filtered by trade and status.
+
+        The filters travel on the *signed* query string as ``tradeType`` and
+        ``orderStatus``; the read stays idempotent so a transient failure is
+        retried by the base client.
 
         Args:
             page: One-based page number.
             rows: Page size.
             start_timestamp: Optional epoch milliseconds lower bound.
             end_timestamp: Optional epoch milliseconds upper bound.
+            trade_type: Optional ``BUY``/``SELL`` provider filter.
+            order_status: Optional external status such as ``PENDING_PAYMENT``.
 
         Returns:
             Normalized C2C orders.
         """
+        trade_value = (
+            trade_type.value if isinstance(trade_type, OrderType) else trade_type
+        )
         params = {
             "page": page,
             "rows": rows,
             "startTimestamp": start_timestamp,
             "endTimestamp": end_timestamp,
+            "tradeType": trade_value,
+            "orderStatus": order_status,
         }
         payload = await self.post(
             _ORDER_HISTORY_PATH,

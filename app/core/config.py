@@ -92,6 +92,70 @@ class Settings(BaseSettings):
     max_usdt_per_order: Decimal
     manual_review_on_limit: bool = True
 
+    # --- buy flow (SMS payout) -------------------------------------------
+    buy_auto_pay_enabled: bool = False
+    max_buy_amount_ves: Decimal
+    daily_pay_limit_ves: Decimal
+    # Deprecated one-release aliases; both resolve onto the canonical field.
+    daily_sms_limit_ves: Decimal | None = None
+    rate_tolerance_pct: Decimal = Decimal("1.0")
+    payment_confirmation_timeout_seconds: int = 300
+    sms_confirmation_timeout_seconds: int | None = None
+    bank_short_codes_bdv: Annotated[list[str], NoDecode] = []
+    bank_short_codes_banesco: Annotated[list[str], NoDecode] = []
+
+    # --- Binance P2P browser (buy flow) ----------------------------------
+    binance_browser_enabled: bool = False
+    binance_browser_headless: bool = True
+    binance_browser_timeout_ms: int = 20000
+    binance_session_state_path: str = "./data/binance_state.json"
+    binance_p2p_order_url_template: str = (
+        "https://p2p.binance.com/en/order/{order_number}"
+    )
+
+    # --- BUY detection worker --------------------------------------------
+    buy_worker_enabled: bool = False
+    buy_worker_poll_interval_seconds: int = 30
+
+    # --- BUY payment rail (Banesco Online) -------------------------------
+    banesco_rail_enabled: bool = False
+    banesco_online_login_url: str = (
+        "https://www.banesconline.com/Mantis/WebSite/Login.aspx"
+    )
+    banesco_online_user: SecretStr | None = None
+    banesco_online_password: SecretStr | None = None
+    banesco_security_answer_hobbie: SecretStr | None = None
+    banesco_security_answer_childhood_hero: SecretStr | None = None
+    banesco_security_answer_favourite_dessert: SecretStr | None = None
+    banesco_security_answer_country_to_visit: SecretStr | None = None
+    banesco_browser_headless: bool = True
+    banesco_browser_timeout_ms: int = 30000
+    banesco_max_concurrent_payments: int = 1
+    banesco_clave_retry_limit: int = 0
+    banesco_payment_concept: str = "Pago"
+    banesco_default_id_type: str = ""
+    buy_payment_rail: Literal["banesco"] = "banesco"
+
+    # --- Telegram operator handoff ---------------------------------------
+    telegram_enabled: bool = False
+    telegram_bot_token: SecretStr | None = None
+    telegram_operator_chat_id: int | None = None
+    telegram_api_base_url: str = "https://api.telegram.org"
+    telegram_clave_timeout_seconds: int = 300
+    telegram_id_type_timeout_seconds: int = 300
+    telegram_poll_timeout_seconds: int = 30
+    telegram_max_clarifications: int = 2
+
+    # --- receipt evidence ------------------------------------------------
+    receipt_storage_dir: str = "./data/receipts"
+    receipt_retention_days: int = 30
+
+    # --- release watcher and appeal --------------------------------------
+    release_watcher_enabled: bool = False
+    release_poll_interval_seconds: int = 30
+    release_timeout_seconds: int = 900
+    release_appeal_mode: Literal["auto", "alert", "off"] = "auto"
+
     # --- logging ---------------------------------------------------------
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_json: bool = True
@@ -104,7 +168,14 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # Validators
     # ------------------------------------------------------------------
-    @field_validator("cors_origins", "allowed_hosts", "trusted_proxies", mode="before")
+    @field_validator(
+        "cors_origins",
+        "allowed_hosts",
+        "trusted_proxies",
+        "bank_short_codes_bdv",
+        "bank_short_codes_banesco",
+        mode="before",
+    )
     @classmethod
     def _parse_list_env(cls, value: Any) -> Any:
         """Parse comma-separated list variables coming from the environment.
@@ -138,21 +209,28 @@ class Settings(BaseSettings):
         "min_tx_amount_ves",
         "daily_limit_ves",
         "max_usdt_per_order",
+        "max_buy_amount_ves",
+        "daily_pay_limit_ves",
+        "daily_sms_limit_ves",
     )
     @classmethod
-    def _validate_money_amounts(cls, value: Decimal, info: ValidationInfo) -> Decimal:
+    def _validate_money_amounts(
+        cls, value: Decimal | None, info: ValidationInfo
+    ) -> Decimal | None:
         """Ensure monetary limits are positive and sensibly quantized.
 
         Args:
-            value: Parsed decimal value.
+            value: Parsed decimal value, or ``None`` for an unused alias.
             info: Validation metadata used to identify the field.
 
         Returns:
-            The quantized decimal value.
+            The quantized decimal value, or ``None`` for an unused alias.
 
         Raises:
             ValueError: If the value is not finite or not strictly positive.
         """
+        if value is None:
+            return None
         try:
             amount = Decimal(str(value))
         except (InvalidOperation, TypeError) as exc:  # pragma: no cover - defensive
@@ -164,6 +242,55 @@ class Settings(BaseSettings):
         quantum = _USDT_QUANT if info.field_name == "max_usdt_per_order" else _VES_QUANT
         return amount.quantize(quantum, rounding=ROUND_HALF_UP)
 
+    @field_validator("rate_tolerance_pct")
+    @classmethod
+    def _validate_rate_tolerance(cls, value: Decimal) -> Decimal:
+        """Ensure the implied-rate tolerance is a percentage in ``(0, 100]``.
+
+        Args:
+            value: Parsed tolerance in percent.
+
+        Returns:
+            The tolerance quantized to two decimals.
+
+        Raises:
+            ValueError: If the value is not finite or outside ``(0, 100]``.
+        """
+        try:
+            tolerance = Decimal(str(value))
+        except (InvalidOperation, TypeError) as exc:  # pragma: no cover - defensive
+            raise ValueError("rate_tolerance_pct must be a decimal number") from exc
+        if not tolerance.is_finite() or tolerance <= 0 or tolerance > Decimal("100"):
+            raise ValueError("rate_tolerance_pct must be greater than 0 and at most 100")
+        return tolerance.quantize(_VES_QUANT, rounding=ROUND_HALF_UP)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _apply_deprecated_aliases(cls, data: Any) -> Any:
+        """Resolve one-release deprecated setting names onto canonical fields.
+
+        Args:
+            data: Raw settings data assembled from the environment and init.
+
+        Returns:
+            The data with deprecated names folded into their canonical field.
+        """
+        if not isinstance(data, dict):
+            return data
+        if (
+            data.get("daily_pay_limit_ves") is None
+            and data.get("daily_sms_limit_ves") is not None
+        ):
+            data["daily_pay_limit_ves"] = data["daily_sms_limit_ves"]
+        if (
+            data.get("payment_confirmation_timeout_seconds") is None
+            and data.get("sms_confirmation_timeout_seconds") is not None
+        ):
+            data["payment_confirmation_timeout_seconds"] = data[
+                "sms_confirmation_timeout_seconds"
+            ]
+        return data
+
     @model_validator(mode="after")
     def _validate_consistency(self) -> "Settings":
         """Validate cross-field and environment-dependent invariants.
@@ -172,15 +299,66 @@ class Settings(BaseSettings):
             The validated settings instance.
 
         Raises:
-            ValueError: If limits are inconsistent, URLs are insecure or
-                production secrets are too short.
+            ValueError: If limits are inconsistent, URLs are insecure,
+                enabled features miss a required setting, or production
+                secrets are too short.
         """
+        # The deprecated aliases always mirror the resolved canonical value.
+        self.daily_sms_limit_ves = self.daily_pay_limit_ves
+        self.sms_confirmation_timeout_seconds = self.payment_confirmation_timeout_seconds
+
         if self.daily_limit_ves < self.max_tx_amount_ves:
             raise ValueError("daily_limit_ves must be greater than or equal to max_tx_amount_ves")
         if self.min_tx_amount_ves > self.max_tx_amount_ves:
             raise ValueError("min_tx_amount_ves must be less than or equal to max_tx_amount_ves")
+        if self.daily_pay_limit_ves < self.max_buy_amount_ves:
+            raise ValueError(
+                "daily_pay_limit_ves must be greater than or equal to max_buy_amount_ves"
+            )
         for field_name in ("binance_c2c_base_url", "cachicamo_base_url", "sms_gateway_base_url"):
             _ensure_secure_base_url(field_name, getattr(self, field_name))
+        if self.banesco_default_id_type not in {"", "V", "E", "J", "G", "R"}:
+            raise ValueError("banesco_default_id_type must be empty or one of V, E, J, G, R")
+        if self.receipt_retention_days < 0:
+            raise ValueError("receipt_retention_days must be greater than or equal to zero")
+        if self.banesco_rail_enabled:
+            for field_name in (
+                "banesco_online_user",
+                "banesco_online_password",
+                "banesco_security_answer_hobbie",
+                "banesco_security_answer_childhood_hero",
+                "banesco_security_answer_favourite_dessert",
+                "banesco_security_answer_country_to_visit",
+            ):
+                _require_secret(field_name, getattr(self, field_name))
+            _ensure_https_url("banesco_online_login_url", self.banesco_online_login_url)
+            if self.banesco_browser_timeout_ms <= 0:
+                raise ValueError("banesco_browser_timeout_ms must be greater than zero")
+            if self.banesco_max_concurrent_payments < 1:
+                raise ValueError("banesco_max_concurrent_payments must be at least one")
+            if not self.telegram_enabled:
+                raise ValueError("telegram_enabled must be true when banesco_rail_enabled is true")
+            if not self.binance_browser_enabled:
+                raise ValueError(
+                    "binance_browser_enabled must be true when banesco_rail_enabled is true"
+                )
+        if self.telegram_enabled or self.banesco_rail_enabled:
+            _require_secret("telegram_bot_token", self.telegram_bot_token)
+            if self.telegram_operator_chat_id is None or self.telegram_operator_chat_id <= 0:
+                raise ValueError("telegram_operator_chat_id must be a positive integer")
+            if self.telegram_clave_timeout_seconds <= 0:
+                raise ValueError("telegram_clave_timeout_seconds must be greater than zero")
+            if self.telegram_poll_timeout_seconds <= 0:
+                raise ValueError("telegram_poll_timeout_seconds must be greater than zero")
+        if self.release_watcher_enabled:
+            if self.release_poll_interval_seconds <= 0:
+                raise ValueError("release_poll_interval_seconds must be greater than zero")
+            if self.release_timeout_seconds <= 0:
+                raise ValueError("release_timeout_seconds must be greater than zero")
+            if self.release_appeal_mode == "auto" and not self.binance_browser_enabled:
+                raise ValueError(
+                    "binance_browser_enabled must be true when release_appeal_mode is auto"
+                )
         if self.is_production:
             if self.debug:
                 raise ValueError("debug must be disabled in production")
@@ -237,6 +415,26 @@ class Settings(BaseSettings):
             "min_tx_amount_ves": str(self.min_tx_amount_ves),
             "daily_limit_ves": str(self.daily_limit_ves),
             "max_usdt_per_order": str(self.max_usdt_per_order),
+            "buy_auto_pay_enabled": self.buy_auto_pay_enabled,
+            "max_buy_amount_ves": str(self.max_buy_amount_ves),
+            "daily_pay_limit_ves": str(self.daily_pay_limit_ves),
+            "daily_sms_limit_ves": str(self.daily_sms_limit_ves),
+            "rate_tolerance_pct": str(self.rate_tolerance_pct),
+            "binance_browser_enabled": self.binance_browser_enabled,
+            "binance_browser_headless": self.binance_browser_headless,
+            "binance_browser_timeout_ms": self.binance_browser_timeout_ms,
+            "buy_worker_enabled": self.buy_worker_enabled,
+            "buy_worker_poll_interval_seconds": self.buy_worker_poll_interval_seconds,
+            "banesco_rail_enabled": self.banesco_rail_enabled,
+            "banesco_browser_headless": self.banesco_browser_headless,
+            "banesco_browser_timeout_ms": self.banesco_browser_timeout_ms,
+            "banesco_max_concurrent_payments": self.banesco_max_concurrent_payments,
+            "telegram_enabled": self.telegram_enabled,
+            "receipt_retention_days": self.receipt_retention_days,
+            "release_watcher_enabled": self.release_watcher_enabled,
+            "release_poll_interval_seconds": self.release_poll_interval_seconds,
+            "release_timeout_seconds": self.release_timeout_seconds,
+            "release_appeal_mode": self.release_appeal_mode,
         }
 
 
@@ -259,6 +457,35 @@ def _is_private_or_local_host(host: str) -> bool:
     if address.is_loopback or address.is_private:
         return True
     return address in _TAILSCALE_CGNAT
+
+
+def _require_secret(field_name: str, value: SecretStr | None) -> None:
+    """Require a non-empty secret value when a rail feature is enabled.
+
+    Args:
+        field_name: Settings field name, used in the error message only.
+        value: Secret value to check.
+
+    Raises:
+        ValueError: If the value is missing or blank.
+    """
+    if value is None or not value.get_secret_value().strip():
+        raise ValueError(f"{field_name} is required when the payment rail is enabled")
+
+
+def _ensure_https_url(field_name: str, url: str) -> None:
+    """Require an absolute HTTPS URL.
+
+    Args:
+        field_name: Settings field name, used in the error message.
+        url: URL to validate.
+
+    Raises:
+        ValueError: If the URL is not an absolute HTTPS URL.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise ValueError(f"{field_name} must be an absolute https URL")
 
 
 def _ensure_secure_base_url(field_name: str, url: str) -> None:

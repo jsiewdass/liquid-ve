@@ -4,7 +4,102 @@ from __future__ import annotations
 
 import pytest
 
-from app.domain.enums import ALLOWED_TRANSITIONS, BankCode, OrderStatus
+from app.domain.enums import (
+    ALLOWED_TRANSITIONS,
+    AuditActor,
+    AuditEvent,
+    BankCode,
+    OrderStatus,
+)
+
+_PAYMENT_TAIL_AUDIT_EVENTS: tuple[str, ...] = (
+    "PAYMENT_INITIATED",
+    "PAYMENT_CAPTURED",
+    "PAYMENT_VERIFIED",
+    "EVIDENCE_UPLOADED",
+    "RELEASE_DETECTED",
+    "APPEAL_FILED",
+    "APPEAL_SKIPPED",
+    "TELEGRAM_CHALLENGE_REJECTED",
+)
+
+
+def test_payment_tail_transitions_and_direct_completion_rejected() -> None:
+    """R-BUY-012: the payment tail reaches release and never completes directly."""
+    assert ALLOWED_TRANSITIONS[OrderStatus.SENDING_PAYMENT] == frozenset(
+        {
+            OrderStatus.AWAITING_RELEASE,
+            OrderStatus.MANUAL_REVIEW,
+            OrderStatus.FAILED,
+        }
+    )
+    assert ALLOWED_TRANSITIONS[OrderStatus.AWAITING_RELEASE] == frozenset(
+        {
+            OrderStatus.COMPLETED,
+            OrderStatus.APPEALED,
+            OrderStatus.MANUAL_REVIEW,
+            OrderStatus.FAILED,
+        }
+    )
+    assert ALLOWED_TRANSITIONS[OrderStatus.APPEALED] == frozenset(
+        {
+            OrderStatus.COMPLETED,
+            OrderStatus.FAILED,
+            OrderStatus.MANUAL_REVIEW,
+        }
+    )
+
+    assert not OrderStatus.SENDING_PAYMENT.can_transition_to(OrderStatus.COMPLETED)
+    assert OrderStatus.SENDING_PAYMENT.can_transition_to(OrderStatus.AWAITING_RELEASE)
+    assert OrderStatus.AWAITING_RELEASE.can_transition_to(OrderStatus.APPEALED)
+    assert OrderStatus.APPEALED.can_transition_to(OrderStatus.COMPLETED)
+
+    assert OrderStatus.AWAITING_RELEASE.value == "AWAITING_RELEASE"
+    assert OrderStatus.APPEALED.value == "APPEALED"
+    assert OrderStatus.SENDING_PAYMENT.value == "SENDING_PAYMENT"
+
+
+def test_flow_a_transition_graph_is_unchanged() -> None:
+    """Flow A (SELL/Cachicamo) keeps exactly its pre-change edges.
+
+    ``VERIFYING_CACHICAMO`` used to branch to ``SENDING_SMS``; that edge is now
+    named ``SENDING_PAYMENT`` by the R-BUY-012 rename and nothing else moves.
+    The new payment-tail statuses must not become reachable from Flow A.
+    """
+    flow_a_edges: dict[OrderStatus, frozenset[OrderStatus]] = {
+        OrderStatus.PENDING: frozenset(
+            {OrderStatus.PAYMENT_DETECTED, OrderStatus.FAILED, OrderStatus.MANUAL_REVIEW}
+        ),
+        OrderStatus.PAYMENT_DETECTED: frozenset(
+            {OrderStatus.VERIFYING_CACHICAMO, OrderStatus.MANUAL_REVIEW, OrderStatus.FAILED}
+        ),
+        OrderStatus.VERIFYING_CACHICAMO: frozenset(
+            {
+                OrderStatus.SENDING_PAYMENT,
+                OrderStatus.COMPLETED,
+                OrderStatus.MANUAL_REVIEW,
+                OrderStatus.FAILED,
+            }
+        ),
+        OrderStatus.COMPLETED: frozenset(),
+        OrderStatus.FAILED: frozenset(),
+        OrderStatus.MANUAL_REVIEW: frozenset({OrderStatus.PENDING, OrderStatus.FAILED}),
+    }
+
+    for source, targets in flow_a_edges.items():
+        assert ALLOWED_TRANSITIONS[source] == targets, source
+
+    for source in flow_a_edges:
+        assert OrderStatus.AWAITING_RELEASE not in ALLOWED_TRANSITIONS[source]
+        assert OrderStatus.APPEALED not in ALLOWED_TRANSITIONS[source]
+
+
+def test_payment_tail_audit_members_exist() -> None:
+    """Later slices address these audit events and the operator actor."""
+    for name in _PAYMENT_TAIL_AUDIT_EVENTS:
+        assert name in AuditEvent.__members__, name
+        assert AuditEvent.__members__[name].value == name
+    assert AuditActor.OPERATOR.value == "OPERATOR"
 
 
 def test_legal_transitions() -> None:
@@ -12,8 +107,8 @@ def test_legal_transitions() -> None:
     assert OrderStatus.PENDING.can_transition_to(OrderStatus.PAYMENT_DETECTED)
     assert OrderStatus.PAYMENT_DETECTED.can_transition_to(OrderStatus.VERIFYING_CACHICAMO)
     assert OrderStatus.VERIFYING_CACHICAMO.can_transition_to(OrderStatus.COMPLETED)
-    assert OrderStatus.VERIFYING_CACHICAMO.can_transition_to(OrderStatus.SENDING_SMS)
-    assert OrderStatus.SENDING_SMS.can_transition_to(OrderStatus.COMPLETED)
+    assert OrderStatus.VERIFYING_CACHICAMO.can_transition_to(OrderStatus.SENDING_PAYMENT)
+    assert OrderStatus.SENDING_PAYMENT.can_transition_to(OrderStatus.AWAITING_RELEASE)
     assert OrderStatus.MANUAL_REVIEW.can_transition_to(OrderStatus.PENDING)
 
 
@@ -23,8 +118,11 @@ def test_legal_transitions() -> None:
         (OrderStatus.PENDING, OrderStatus.COMPLETED),
         (OrderStatus.COMPLETED, OrderStatus.PENDING),
         (OrderStatus.FAILED, OrderStatus.MANUAL_REVIEW),
-        (OrderStatus.SENDING_SMS, OrderStatus.VERIFYING_CACHICAMO),
+        (OrderStatus.SENDING_PAYMENT, OrderStatus.VERIFYING_CACHICAMO),
+        (OrderStatus.SENDING_PAYMENT, OrderStatus.COMPLETED),
         (OrderStatus.PAYMENT_DETECTED, OrderStatus.COMPLETED),
+        (OrderStatus.AWAITING_RELEASE, OrderStatus.PENDING),
+        (OrderStatus.APPEALED, OrderStatus.PENDING),
     ],
 )
 def test_illegal_transitions(source: OrderStatus, target: OrderStatus) -> None:
@@ -37,6 +135,8 @@ def test_terminal_states() -> None:
     assert OrderStatus.COMPLETED.is_terminal()
     assert OrderStatus.FAILED.is_terminal()
     assert not OrderStatus.MANUAL_REVIEW.is_terminal()
+    assert not OrderStatus.AWAITING_RELEASE.is_terminal()
+    assert not OrderStatus.APPEALED.is_terminal()
     assert OrderStatus.COMPLETED.is_successful()
     assert not OrderStatus.FAILED.is_successful()
 

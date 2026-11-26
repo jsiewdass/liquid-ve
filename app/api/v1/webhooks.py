@@ -19,20 +19,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings, get_settings
 from app.core.exceptions import LiquidVEException
-from app.core.logging import get_logger
+from app.core.logging import get_logger, request_id_var
 from app.core.security import (
     CachicamoWebhookVerifier,
     hash_payload,
     require_bearer_token,
 )
-from app.domain.enums import OrderStatus
+from app.domain.enums import AuditActor, AuditEvent, OrderStatus, OrderType
 from app.domain.schemas import (
     CachicamoWebhookPayload,
     SmsInboundWebhookPayload,
+    SmsWebhookResponse,
     WebhookAcceptedResponse,
 )
 from app.infrastructure.database import get_session
-from app.infrastructure.models import P2POrder, WebhookEvent
+from app.infrastructure.models import AuditLog, P2POrder, WebhookEvent
 from app.services.buy_flow import BuyFlow
 from app.services.sell_flow import SellFlow
 
@@ -43,7 +44,6 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 
 _CACHICAMO_PROVIDER = "cachicamo"
-_SMS_PROVIDER = "sms_gateway"
 
 
 def _request_settings(request: Request) -> Settings:
@@ -74,6 +74,18 @@ def _clients(request: Request) -> tuple[Any, Any, Any]:
         getattr(request.app.state, "cachicamo", None),
         getattr(request.app.state, "sms", None),
     )
+
+
+def _browser(request: Request) -> Any:
+    """Return the optional browser adapter created during startup.
+
+    Args:
+        request: Current request.
+
+    Returns:
+        The browser port, or ``None`` when automation is disabled.
+    """
+    return getattr(request.app.state, "browser", None)
 
 
 async def _store_event(session: AsyncSession, event: WebhookEvent) -> bool:
@@ -155,45 +167,29 @@ async def cachicamo_webhook(
 @router.post(
     "/sms",
     status_code=202,
-    response_model=WebhookAcceptedResponse,
+    response_model=SmsWebhookResponse,
     summary="Receive an inbound SMS notification",
     dependencies=[Depends(require_bearer_token)],
 )
 async def sms_webhook(
     request: Request,
     session: SessionDep,
-) -> WebhookAcceptedResponse:
+) -> SmsWebhookResponse:
     """Handle an inbound SMS notification.
+
+    The webhook is a thin adapter over :meth:`BuyFlow.confirm_bank_payment`, so
+    the poller and the HTTP path share one dedupe anchor and one outcome
+    vocabulary.  Every delivery is answered with HTTP 202; a duplicate is
+    flagged rather than rejected.
 
     Args:
         request: Raw request.
         session: Database session dependency.
 
     Returns:
-        The acceptance envelope; ``duplicate=True`` for replays.
+        The enriched acceptance envelope.
     """
     payload = SmsInboundWebhookPayload.model_validate_json(await request.body())
-    stored = await _store_event(
-        session,
-        WebhookEvent(
-            provider=_SMS_PROVIDER,
-            external_event_id=payload.message_id,
-            payload_hash=hash_payload(await request.body()),
-            signature_valid=True,
-            processed=False,
-            payload=payload.model_dump(mode="json"),
-        ),
-    )
-    if not stored:
-        return WebhookAcceptedResponse(
-            accepted=True,
-            event_id=payload.message_id,
-            duplicate=True,
-            message="SMS already processed",
-        )
-
-    from app.infrastructure.clients.sms_gateway import IncomingSms
-
     binance, cachicamo, sms = _clients(request)
     flow = BuyFlow(
         session,
@@ -201,23 +197,43 @@ async def sms_webhook(
         binance=binance,
         cachicamo=cachicamo,
         sms=sms,
+        browser=_browser(request),
     )
-    matched = await flow.handle_incoming_sms(
-        IncomingSms(
-            message_id=payload.message_id,
-            sender=payload.sender,
-            body=payload.body,
-            received_at=payload.received_at,
-            raw=payload.model_dump(mode="json"),
-        )
+    confirmation = await flow.confirm_bank_payment(
+        message_id=payload.message_id,
+        sender=payload.sender,
+        body=payload.body,
+        received_at=payload.received_at,
     )
-    message = "SMS stored; no matching order" if matched is None else "SMS matched an order"
-    await _mark_processed(session, _SMS_PROVIDER, payload.message_id, None)
-    return WebhookAcceptedResponse(
+    return SmsWebhookResponse(
         accepted=True,
         event_id=payload.message_id,
-        message=message,
+        duplicate=confirmation.duplicate,
+        message=_sms_message(confirmation.outcome, confirmation.duplicate),
+        outcome=confirmation.outcome,
+        order_number=confirmation.order_number,
+        reason=confirmation.reason,
     )
+
+
+def _sms_message(outcome: str, duplicate: bool) -> str:
+    """Render the human readable acceptance message for an SMS delivery.
+
+    Args:
+        outcome: Confirmation outcome vocabulary.
+        duplicate: Whether the message was an already processed replay.
+
+    Returns:
+        A short, PII-free message.
+    """
+    if duplicate:
+        return "SMS already processed"
+    return {
+        "confirmed": "SMS confirmed an order",
+        "matched": "SMS matched an order",
+        "ambiguous": "SMS matched more than one order",
+        "no_match": "SMS stored; no matching order",
+    }.get(outcome, "SMS stored; no matching order")
 
 
 async def _mark_processed(
@@ -248,6 +264,43 @@ async def _mark_processed(
     await session.flush()
 
 
+async def _reject_non_sell_order(
+    session: AsyncSession,
+    order: P2POrder,
+) -> str | None:
+    """Reject a non-SELL order that reached the sell-side dispatch.
+
+    The SQL predicate makes this unreachable in normal operation; it is the
+    defence-in-depth half of R-BUY-011, so a caller that bypasses the query can
+    still never advance a BUY order.  A ``WEBHOOK_REJECTED`` audit entry with
+    reason ``direction_mismatch`` is written before returning.
+
+    Args:
+        session: Active request session.
+        order: Loaded candidate order.
+
+    Returns:
+        The no-match message for a non-SELL order, ``None`` when it is SELL.
+    """
+    if order.order_type is OrderType.SELL:
+        return None
+    session.add(
+        AuditLog(
+            order_id=order.id,
+            event=AuditEvent.WEBHOOK_REJECTED,
+            actor=AuditActor.WEBHOOK,
+            from_status=order.status,
+            to_status=order.status,
+            message="Cachicamo webhook rejected: direction mismatch",
+            payload={"reason": "direction_mismatch"},
+            request_id=request_id_var.get(),
+        )
+    )
+    await session.flush()
+    logger.warning("Cachicamo webhook rejected a non-SELL order")
+    return "Payment stored; no matching order is waiting for it"
+
+
 async def _dispatch_cachicamo(
     request: Request,
     session: AsyncSession,
@@ -255,8 +308,9 @@ async def _dispatch_cachicamo(
 ) -> str:
     """Forward a verified payment to the sell flow.
 
-    Matching is best effort: the oldest pending order with the same fiat
-    amount is selected.
+    Matching is direction-first: only ``SELL`` orders are candidates, because a
+    Cachicamo payment advances the order and can release crypto.  Within that
+    set the oldest pending order with the same fiat amount is selected.
 
     Args:
         request: Current request (used to read the app clients).
@@ -271,6 +325,7 @@ async def _dispatch_cachicamo(
     result = await session.execute(
         select(P2POrder)
         .where(
+            P2POrder.order_type == OrderType.SELL,
             P2POrder.status.in_(
                 [OrderStatus.PENDING, OrderStatus.PAYMENT_DETECTED]
             ),
@@ -282,6 +337,9 @@ async def _dispatch_cachicamo(
     order = result.scalar_one_or_none()
     if order is None:
         return "Payment stored; no matching order is waiting for it"
+    rejection = await _reject_non_sell_order(session, order)
+    if rejection is not None:
+        return rejection
     binance, cachicamo, sms = _clients(request)
     flow = SellFlow(
         session,

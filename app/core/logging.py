@@ -44,8 +44,29 @@ SECRET_KEYS: frozenset[str] = frozenset(
         "xapikey",
         "signature",
         "private_key",
+        # Banesco rail secrets: security answers, online clave and the
+        # operator-provided Clave Dinámica.  None may ever be rendered.
+        "security_answer",
+        "answer",
+        "clave",
+        "clave_dinamica",
+        "user",
+        "username",
     }
 )
+
+RECEIPT_KEYS: frozenset[str] = frozenset(
+    {
+        "receipt_text",
+        "receipt_text_raw",
+        "raw_text",
+        "receipt_bytes",
+        "receipt_image",
+        "image_bytes",
+        "screenshot_bytes",
+    }
+)
+"""Receipt text and image payloads; never rendered in any sink."""
 
 IDENTIFIER_KEYS: frozenset[str] = frozenset(
     {
@@ -63,9 +84,9 @@ IDENTIFIER_KEYS: frozenset[str] = frozenset(
     }
 )
 
-SENSITIVE_KEYS: frozenset[str] = SECRET_KEYS | IDENTIFIER_KEYS
+SENSITIVE_KEYS: frozenset[str] = SECRET_KEYS | IDENTIFIER_KEYS | RECEIPT_KEYS
 
-_CEDULA_PATTERN = re.compile(r"\b([VEJGP])-?(\d{6,9})\b", re.IGNORECASE)
+_CEDULA_PATTERN = re.compile(r"\b([VEJGPR])-?(\d{6,9})\b", re.IGNORECASE)
 _PHONE_PATTERN = re.compile(r"(\+?58|0)?(4\d{2})[- .]?(\d{3})[- .]?(\d{4})\b")
 
 _logging_configured = False
@@ -102,18 +123,19 @@ def _mask_value(key: str, value: Any) -> Any:
     Returns:
         A masked string, or the original value when the key is not sensitive.
     """
-    if not isinstance(value, str) or not value:
-        return value
     normalized = _normalize_key(key)
     secret_keys = {_normalize_key(item) for item in SECRET_KEYS}
     identifier_keys = {_normalize_key(item) for item in IDENTIFIER_KEYS}
-    if normalized in secret_keys:
+    receipt_keys = {_normalize_key(item) for item in RECEIPT_KEYS}
+    if normalized in secret_keys or normalized in receipt_keys:
         return "***"
+    if not isinstance(value, str) or not value:
+        return value
     if normalized in identifier_keys:
         return _mask_identifier(value)
-    if normalized == "message":
-        return _mask_message(value)
-    return value
+    # Mask document and phone shapes inside every free-text value, not only
+    # the rendered message, so an R- document never leaks through extra fields.
+    return _mask_message(value)
 
 
 def mask_sensitive(record: dict[str, Any]) -> dict[str, Any]:
@@ -134,7 +156,9 @@ def mask_sensitive(record: dict[str, Any]) -> dict[str, Any]:
             sanitized[key] = mask_sensitive(dict(value))
         elif isinstance(value, (list, tuple)):
             sanitized[key] = [
-                mask_sensitive(dict(item)) if isinstance(item, Mapping) else item
+                mask_sensitive(dict(item))
+                if isinstance(item, Mapping)
+                else _mask_value(key, item)
                 for item in value
             ]
         else:
@@ -184,6 +208,11 @@ def configure_logging(settings: Settings) -> None:
     global _logging_configured
     app_env_var.set(settings.app_env)
     logger.remove()
+    # loguru 0.7.3 has no ``patcher`` kwarg on ``add()``; the global patcher is
+    # registered via ``configure``.  A patcher set this way survives
+    # ``logger.remove()`` and still applies to every sink added afterwards
+    # (verified empirically), so registering it once here is correct.
+    logger.configure(patcher=_patch_record)
     if settings.log_json:
         sink: Any = sys.stdout
         logger.add(
@@ -193,7 +222,6 @@ def configure_logging(settings: Settings) -> None:
             enqueue=True,
             backtrace=settings.debug,
             diagnose=False,
-            patcher=_patch_record,
         )
     else:
         logger.add(
@@ -208,7 +236,6 @@ def configure_logging(settings: Settings) -> None:
                 "<level>{level: <8}</level> | "
                 "<cyan>{extra[request_id]}</cyan> | <level>{message}</level>"
             ),
-            patcher=_patch_record,
         )
     _logging_configured = True
     intercept_standard_logging()
@@ -278,6 +305,9 @@ def get_logger(name: str | None = None) -> Logger:
 __all__ = [
     "request_id_var",
     "SENSITIVE_KEYS",
+    "SECRET_KEYS",
+    "IDENTIFIER_KEYS",
+    "RECEIPT_KEYS",
     "mask_sensitive",
     "configure_logging",
     "intercept_standard_logging",

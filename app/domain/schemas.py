@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.domain.enums import BankCode, OrderStatus, OrderType
 
 _PHONE_CLEAN_RE = re.compile(r"[\s\-().]")
-_ID_PATTERN = re.compile(r"^([VEJGP])-?(\d{6,9})$", re.IGNORECASE)
+_ID_PATTERN = re.compile(r"^([VEJGPR])-?(\d{6,9})$", re.IGNORECASE)
 
 
 def validate_venezuelan_phone(value: str) -> str:
@@ -192,6 +192,69 @@ class WebhookAcceptedResponse(BaseModel):
     message: str
 
 
+class SmsConfirmation(BaseModel):
+    """Outcome of correlating one inbound bank reply.
+
+    ``outcome`` is the same vocabulary the webhook exposes: ``confirmed`` for a
+    parsed success with exactly one candidate, ``matched`` when the reply
+    reached an order but needs a human (failure, unparseable, ambiguous parse,
+    duplicate reference), ``ambiguous`` when several orders matched, and
+    ``no_match`` otherwise.  ``duplicate`` marks a replay of an already
+    processed ``message_id``.
+    """
+
+    outcome: Literal["matched", "confirmed", "ambiguous", "no_match"]
+    order_number: str | None = None
+    reason: str | None = None
+    duplicate: bool = False
+
+
+class SmsWebhookResponse(WebhookAcceptedResponse):
+    """Acceptance envelope for the enriched SMS webhook contract."""
+
+    outcome: Literal["matched", "confirmed", "ambiguous", "no_match"] = "no_match"
+    order_number: str | None = None
+    reason: str | None = None
+
+
+class BuyPayRequest(BaseModel):
+    """Optional operator payload for approving a parked BUY payout.
+
+    ``destination_phone`` is normalized for logging/audit but never used as a
+    gateway destination, never as payment data and never echoed back.
+    """
+
+    destination_phone: str | None = None
+    reason: str | None = Field(default=None, max_length=280)
+
+    @field_validator("destination_phone")
+    @classmethod
+    def _validate_phone(cls, value: str | None) -> str | None:
+        """Normalize the optional operator-supplied phone number."""
+        return validate_venezuelan_phone(value) if value else value
+
+
+class BuyPayResponse(BaseModel):
+    """Operator-facing view of a BUY payout attempt.
+
+    Deliberately carries no amount, phone or cedula: only lifecycle data that
+    is safe to show to an operator.
+    """
+
+    order_number: str
+    status: OrderStatus
+    outcome: Literal[
+        "dispatched",
+        "resumed",
+        "awaiting_approval",
+        "noop",
+        "manual_review",
+    ]
+    manual_review_reason: str | None = None
+    bank_short_code: str | None = None
+    sms_message_id: str | None = None
+
+
 class ApiErrorDetail(BaseModel):
     """Error body fields matching :meth:`LiquidVEException.to_dict`."""
 
@@ -236,6 +299,10 @@ __all__ = [
     "HealthComponent",
     "HealthResponse",
     "WebhookAcceptedResponse",
+    "SmsConfirmation",
+    "SmsWebhookResponse",
+    "BuyPayRequest",
+    "BuyPayResponse",
     "ApiErrorDetail",
     "ApiErrorResponse",
 ]

@@ -9,8 +9,8 @@ from enum import Enum
 class OrderType(str, Enum):
     """Direction of a P2P trade from the operator's perspective.
 
-    ``BUY`` means we receive VES and release crypto to the counterparty.
-    ``SELL`` means we pay VES and purchase crypto from the counterparty.
+    ``BUY`` means we pay VES and receive crypto from the counterparty.
+    ``SELL`` means the counterparty pays VES and we release crypto.
     """
 
     BUY = "BUY"
@@ -23,7 +23,9 @@ class OrderStatus(str, Enum):
     PENDING = "PENDING"
     PAYMENT_DETECTED = "PAYMENT_DETECTED"
     VERIFYING_CACHICAMO = "VERIFYING_CACHICAMO"
-    SENDING_SMS = "SENDING_SMS"
+    SENDING_PAYMENT = "SENDING_PAYMENT"
+    AWAITING_RELEASE = "AWAITING_RELEASE"
+    APPEALED = "APPEALED"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     MANUAL_REVIEW = "MANUAL_REVIEW"
@@ -58,14 +60,25 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
     ),
     OrderStatus.VERIFYING_CACHICAMO: frozenset(
         {
-            OrderStatus.SENDING_SMS,
+            OrderStatus.SENDING_PAYMENT,
             OrderStatus.COMPLETED,
             OrderStatus.MANUAL_REVIEW,
             OrderStatus.FAILED,
         }
     ),
-    OrderStatus.SENDING_SMS: frozenset(
-        {OrderStatus.COMPLETED, OrderStatus.MANUAL_REVIEW, OrderStatus.FAILED}
+    OrderStatus.SENDING_PAYMENT: frozenset(
+        {OrderStatus.AWAITING_RELEASE, OrderStatus.MANUAL_REVIEW, OrderStatus.FAILED}
+    ),
+    OrderStatus.AWAITING_RELEASE: frozenset(
+        {
+            OrderStatus.COMPLETED,
+            OrderStatus.APPEALED,
+            OrderStatus.MANUAL_REVIEW,
+            OrderStatus.FAILED,
+        }
+    ),
+    OrderStatus.APPEALED: frozenset(
+        {OrderStatus.COMPLETED, OrderStatus.FAILED, OrderStatus.MANUAL_REVIEW}
     ),
     OrderStatus.COMPLETED: frozenset(),
     OrderStatus.FAILED: frozenset(),
@@ -232,7 +245,14 @@ class AuditEvent(str, Enum):
 
     ORDER_CREATED = "ORDER_CREATED"
     STATUS_CHANGED = "STATUS_CHANGED"
+    PAYMENT_INITIATED = "PAYMENT_INITIATED"
+    PAYMENT_CAPTURED = "PAYMENT_CAPTURED"
     PAYMENT_VERIFIED = "PAYMENT_VERIFIED"
+    EVIDENCE_UPLOADED = "EVIDENCE_UPLOADED"
+    RELEASE_DETECTED = "RELEASE_DETECTED"
+    APPEAL_FILED = "APPEAL_FILED"
+    APPEAL_SKIPPED = "APPEAL_SKIPPED"
+    TELEGRAM_CHALLENGE_REJECTED = "TELEGRAM_CHALLENGE_REJECTED"
     SMS_SENT = "SMS_SENT"
     SMS_RECEIVED = "SMS_RECEIVED"
     RISK_BLOCKED = "RISK_BLOCKED"

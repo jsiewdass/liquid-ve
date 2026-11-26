@@ -1,0 +1,139 @@
+<html lang="es"><head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" xml:lang="en" lang="en" translate="no">
+    <title>validar - Banesco Pago Móvil</title>
+
+    <link href="/P2PWEB/favicon.ico" rel="shortcut icon" type="image/x-icon">
+    <meta name="format-detection" content="telephone=no">
+
+    <meta name="viewport" content="width=device-width">
+
+    
+
+    
+    
+
+    
+    
+
+    
+    
+
+    
+
+    
+
+    
+</head>
+<body>
+    <div id="body">
+
+        
+        <div class="container-fluid" id"mydiv"="">
+
+
+            
+
+
+
+<div class="col-xs-12" id="DivContenedor">
+    <div class="panel panel-default" id="TituloContenedor">
+        <div class="panel-heading">
+            <div class="ConDiv">
+                <i class="icon-exclamacion"></i>
+            </div>
+            <h3 class="panel-title" style="font-size:14px"><b>Buenas Tardes, NOMBRE APELLIDO EJEMPLO</b></h3>
+        </div>
+        <div class="panel-body"><div class="col-xs-12" style="display: flex;"> <img src="../Images/app-green.png" style="height: 90px" ;=""><div><p class="banesco_info_panel">Ingrese en BanescoMovil en la opción de <img src="../Images/llave-green.png" style="height: 19px"> Clave Dinámica y genere la clave para completar la operación.</p><p class="banesco_info_panel"><b>Recuerde</b> que la clave será válida para realizar solo una operación y se genera de forma automática y aleatoria al terminar el tiempo de vigencia.</p><p class="banesco_info_panel"><b>Importante:</b> Si presenta inconvenientes para acceder a la Clave Dinámica puede realizar la activación de la Contingencia a través de las opción Clave Operaciones Especiales/Suspensión Temporal Envío de Clave al Celular.</p></div></div></div>
+    </div>
+</div>
+
+<div class="col-xs-12">
+    <div align="center">
+        <form class="form-horizontal" role="form" id="form" action="/P2PWEB/Home/Validar" method="post" novalidate="novalidate">
+
+
+            <div class="form-group col-md-12 formStyle">
+
+                <label for="ejemplo_password_3" class="col-xs-5 control-label payment_font">
+                    <span id="SpanCD" style="background-color: #007953; color: white; border-radius: 50%; padding: 2px 5px; margin-right: 8%; display:none;">?</span>
+                    <span style="z-index: 1; position: absolute; margin-top: 1%; border: 1px solid #007953; padding: 10px; margin-left: 0%; background-color: white; border-radius: 10px; display: none; width: 320px; font-size: 12px; text-align: center;" id="MsjCD">
+                        <span id="spanImg">
+                            <img id="ImgMsjCD" style="width: 250px; margin-bottom: 10px;" src="/P2PWEB/Images/ClaveDinamica/2.gif" loop="infinite">
+                            
+                        </span>
+                        <span>Ve a tu app BanescoMóvil y la encontraras en la parte inferior derecha de la pantalla</span>
+                    </span>
+                    <span>Ingrese su Clave Dinámica:</span>
+                </label>
+                <div class="col-xs-3">
+                    <input type="password" class="form-control" name="otp" id="otp" pattern="[0-9]{7,8}" maxlength="8">
+                </div>
+                <img class="ImagePS" id="imgotp" runat="server" src="../Images/visiblex23.png">
+            </div>
+
+            <div class="form-group" aling="center">
+                <div class="col-xs-11">
+                    <button type="reset" class="btn btn-primary redirect" data-target="#exampleModal">
+                        Regresar
+                    </button>
+                    <div class="col-md-1"></div>
+                    <button type="submit" id="acceptar" class="btn btn-primary " data-target="#exampleModal">
+                        Aceptar
+                    </button>
+                </div>
+            </div>
+
+        </form>
+    </div>
+</div>
+
+<div class="modal fade" id="myModal" tabindex="-1" role="dialog" aria-labelledby="myModallLabel" data-backdrop="static" data-keyboard="false">
+    <div class="modal-dialog" role="document" style="width: 700px;">
+        <div class="modal-content" style="box-shadow: 0px 0px 10px rgb(0 121 83); -webkit-box-shadow: 0px 0px 10px rgb(0 121 83); border: 2px solid #007953; ">
+            <div class="modal-body" id="modalBody" style="padding: 0px;">
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+
+        </div>
+    </div>
+
+
+    
+
+
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+
+
+
+    
+
+
+
+    
+
+
+
+
+
+</body></html>

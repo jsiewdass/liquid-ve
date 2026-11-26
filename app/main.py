@@ -15,12 +15,15 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from loguru import logger
 from pydantic import ValidationError
+from sqlalchemy import select
 
 from app import __version__
-from app.api.v1 import health, webhooks
+from app.api.v1 import health, orders, webhooks
 from app.core.config import Settings, get_settings
-from app.core.exceptions import LiquidVEException
+from app.core.exceptions import DuplicateOrderError, LiquidVEException
 from app.core.logging import configure_logging, new_request_id, request_id_var
+from app.domain.enums import OrderType
+from app.infrastructure.clients.binance_browser import PlaywrightBinanceBrowser
 from app.infrastructure.clients.binance_client import BinanceC2CClient
 from app.infrastructure.clients.cachicamo_client import CachicamoClient
 from app.infrastructure.clients.sms_gateway import SmsGatewayClient
@@ -30,7 +33,10 @@ from app.infrastructure.database import (
     init_engine,
     session_scope,
 )
+from app.infrastructure.models import P2POrder
 from app.services.buy_flow import BuyFlow
+
+_PENDING_PAYMENT_STATUS = "PENDING_PAYMENT"
 
 
 async def _run_sms_poller(app: FastAPI) -> None:
@@ -57,6 +63,7 @@ async def _run_sms_poller(app: FastAPI) -> None:
                     binance=getattr(app.state, "binance", None),
                     cachicamo=getattr(app.state, "cachicamo", None),
                     sms=sms_client,
+                    browser=getattr(app.state, "browser", None),
                 )
                 messages = await sms_client.fetch_inbox()
                 for message in messages:
@@ -66,6 +73,79 @@ async def _run_sms_poller(app: FastAPI) -> None:
             raise
         except Exception as exc:  # noqa: BLE001 - the loop must survive
             logger.warning("SMS poller iteration failed: {}", type(exc).__name__)
+
+
+async def _buy_worker_tick(app: FastAPI) -> None:
+    """Run one BUY detection and timeout-sweep pass.
+
+    The tick performs exactly one filtered history read, ignores anything that
+    is not a ``BUY`` in ``PENDING_PAYMENT``, skips orders whose number is
+    already persisted (the B1 idempotency anchor) and delegates the pipeline to
+    :class:`BuyFlow`.  It never sleeps; the loop owns the interval.
+
+    Args:
+        app: Application holding settings and clients on ``state``.
+    """
+    app_settings: Settings = app.state.settings
+    binance = getattr(app.state, "binance", None)
+    if binance is None:
+        return
+    history = await binance.get_order_history(
+        trade_type=OrderType.BUY,
+        order_status=_PENDING_PAYMENT_STATUS,
+    )
+    async with session_scope() as session:
+        flow = BuyFlow(
+            session,
+            settings=app_settings,
+            binance=binance,
+            cachicamo=getattr(app.state, "cachicamo", None),
+            sms=getattr(app.state, "sms", None),
+            browser=getattr(app.state, "browser", None),
+        )
+        for candidate in history:
+            if candidate.trade_type is not OrderType.BUY:
+                continue
+            if candidate.status != _PENDING_PAYMENT_STATUS:
+                continue
+            known = await session.execute(
+                select(P2POrder.id).where(
+                    P2POrder.order_number == candidate.order_number
+                )
+            )
+            if known.scalar_one_or_none() is not None:
+                continue
+            try:
+                await flow.execute(candidate.order_number)
+            except DuplicateOrderError:
+                continue
+            except LiquidVEException as exc:
+                logger.warning(
+                    "Buy worker skipped order {}: {}",
+                    candidate.order_number,
+                    type(exc).__name__,
+                )
+        await flow.sweep_timeouts()
+
+
+async def _run_buy_worker(app: FastAPI) -> None:
+    """Run the BUY detection loop until cancelled.
+
+    Args:
+        app: Application holding settings and clients on ``state``.
+    """
+    app_settings: Settings = app.state.settings
+    while True:
+        await asyncio.sleep(app_settings.buy_worker_poll_interval_seconds)
+        try:
+            await _buy_worker_tick(app)
+        except asyncio.CancelledError:
+            logger.info("Buy worker stopped")
+            raise
+        except Exception as exc:  # noqa: BLE001 - the loop must survive
+            logger.warning(
+                "Buy worker iteration failed: {}", type(exc).__name__
+            )
 
 
 @asynccontextmanager
@@ -84,6 +164,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     init_engine(app_settings)
     stack = AsyncExitStack()
     poller_task: asyncio.Task[None] | None = None
+    worker_task: asyncio.Task[None] | None = None
+    browser: PlaywrightBinanceBrowser | None = None
     try:
         if not app_settings.is_production:
             await create_all()
@@ -94,14 +176,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             CachicamoClient(app_settings)
         )
         app.state.sms = await stack.enter_async_context(SmsGatewayClient(app_settings))
+        if app_settings.binance_browser_enabled:
+            browser = PlaywrightBinanceBrowser(app_settings)
+        app.state.browser = browser
         if app_settings.sms_poller_enabled:
             poller_task = asyncio.create_task(_run_sms_poller(app), name="sms-poller")
+        if app_settings.buy_worker_enabled:
+            worker_task = asyncio.create_task(_run_buy_worker(app), name="buy-worker")
         yield
     finally:
-        if poller_task is not None:
-            poller_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await poller_task
+        for task in (poller_task, worker_task):
+            if task is not None:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
+        if browser is not None:
+            await browser.aclose()
         await stack.aclose()
         await dispose_engine()
         logger.info("Shutdown complete")
@@ -216,6 +306,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _register_exception_handlers(application)
     application.include_router(health.router, prefix=app_settings.api_v1_prefix)
     application.include_router(webhooks.router, prefix=app_settings.api_v1_prefix)
+    application.include_router(orders.router, prefix=app_settings.api_v1_prefix)
 
     @application.get("/", tags=["root"])
     async def root() -> dict[str, str]:

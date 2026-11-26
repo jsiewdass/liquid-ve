@@ -1,0 +1,474 @@
+<html lang="es"><head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" xml:lang="en" lang="en" translate="no">
+    <title>Home Page - Banesco Pago Móvil</title>
+
+    <link href="/P2PWEB/favicon.ico" rel="shortcut icon" type="image/x-icon">
+    <meta name="format-detection" content="telephone=no">
+
+    <meta name="viewport" content="width=device-width">
+
+    
+
+    
+    
+
+    
+    
+
+    
+    
+
+    
+
+    
+
+    
+</head>
+<body>
+    <div id="body">
+
+        
+        <div class="container-fluid" id"mydiv"="">
+
+
+            
+
+<div class="col-md-12">
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <div class="ConDiv">
+                <i class="icon-exclamacion"></i>
+            </div>
+            <h3 class="panel-title"><strong>Buenas Tardes, NOMBRE APELLIDO EJEMPLO</strong></h3>
+        </div>
+        <div class="panel-body">
+            <p>
+                 Esta opción le permite realizar pagos en línea a Clientes Banesco y/o de otros Bancos Nacionales, para lo cual debe poseer la Clave de Operaciones Especiales. <b>Recuerde verificar que todos los datos estén correctos, antes de hacer clic en Aceptar.</b>
+            </p>
+            <br>
+            <p>
+                <b>Importante:</b> Ud. cuenta con un monto máximo diario global para el envío de Pagos a Personas y a Comercios, el cual puede distribuir entre los limites máximos diarios permitidos para cada modalidad:
+            </p>
+            <br>
+            <b>Límites máximos diario para el envío de pagos a Persona Natural otros bancos:</b>
+
+            <ul>
+                <li>Banesco Pago Móvil Aplicación límite máximo diario hasta Bs. <b>2.500.000,00</b></li>
+                <li>Banesco Pago Móvil WEB  límite máximo diario hasta Bs. <b> 2.500.000,00 </b></li>
+                <li>Banesco Pago Móvil SMS límite máximo diario hasta Bs. <b> 100.000,00 </b></li>
+            </ul>
+
+            <b>LÍmites máximos diario para el envío de pagos a Comercios otros bancos:</b>
+
+            <ul>
+                <li>Banesco Pago Móvil Aplicación límite máximo diario hasta <b> 2.500.000,00 </b></li>
+                <li>Banesco Pago Móvil WEB  límite máximo diario hasta Bs. <b> 2.500.000,00 </b></li>
+                <li>Banesco Pago Móvil SMS límite máximo diario hasta Bs. <b> 100.000,00 </b></li>
+            </ul>
+            <p>
+                <b>Nota:</b> Las operaciones Pago Móvil realizadas entre clientes de Banesco (Mismo Banco) estarán sujetas al saldo disponible en cuenta.<br>El Monto máximo diario global corresponde a la sumatoria de todos los pagos que Ud. puede realizar por Pago Móvil a través de las distintas modalidades que ofrece el servicio:<b> Aplicación Móvil, Web y SMS</b>.
+            </p>
+        </div>
+
+    </div>
+</div>
+<!-- Table -->
+
+
+<div class="col-md-12">
+    <div class="table-responsive">
+        <table class="table" id="marTabla">
+            <thead>
+                <tr>
+                    <th class="col-md-4 "></th>
+                    <th class="col-md-4 Banesco_header_tb Banesco_th">CÓDIGO CUENTA CLIENTE A DEBITAR</th>
+                    <th class="col-md-4 "></th>
+                </tr>
+            </thead>
+        </table>
+
+        <table class="table">
+            <tbody>
+                <tr class="Banesco_tr">
+                    <td class="col-md-4 Banesco_td" colspan="3">
+                        <select class="custom-select" id="inputGroupSelect01">
+                            <option selected="">Cuenta Electrónica 0134-****-**-***0000000</option>
+                        </select>
+                    </td>
+                </tr>
+
+                <tr class="Banesco_tr">
+                    <td class="col-md-4 Banesco_td" colspan="3">
+                        <strong>Saldo Disponible:</strong> 53.250,32
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<br>
+
+<div class="col-md-12">
+
+    <div class="caja col-md-6"><strong>Monto Diario Persona Otros Bancos:</strong><br> 2.500.000,00</div>
+
+    <div class="caja col-md-6"><strong>Monto Diario Comercio Otros Bancos:</strong><br> 2.500.000,00</div>
+
+</div>
+
+
+<br>
+
+
+<div class="col-md-12">
+    <table class="table" id="marTabla">
+        <thead>
+            <tr>
+                <th class="col-md-4 "></th>
+                <th class="col-md-4 Banesco_header_tb Banesco_th" colspan="3">Datos para el Pago</th>
+                <th class="col-md-4 "></th>
+            </tr>
+        </thead>
+    </table>
+    <br>
+</div>
+
+
+
+
+<div class="col-md-12">
+    <div align="center">
+        <form class="form-horizontal" role="form" id="form" action="/P2PWEB/Home/ConfirPago" method="post" novalidate="novalidate">
+
+
+
+            <div class="form-group col-md-12 formStyle">
+                <div class="col-md-6">
+                    <label for="ejemplo_password_3" class="control-label payment_font"> Haga click en el directorio de pagos para seleccionar los datos del beneficiario:</label>
+                </div>
+                <div class="col-md-1">
+                    <button type="button" class="btn btn-primary" id="buttonId">
+                        Pago Frecuente
+                    </button>
+                </div>
+            </div>
+
+            <div class="form-group col-md-12 formStyle">
+                <label for="ejemplo_password_3" class="col-md-6 control-label payment_font">Número de Teléfono del Beneficiario:</label>
+                <div class="col-md-1 size">
+                    <select class="form-control" id="pref" name="prefijo" required="">
+
+                            <option value="0416"> 0416</option>
+                            <option value="0426"> 0426</option>
+                            <option value="0414"> 0414</option>
+                            <option value="0424"> 0424</option>
+                            <option value="0412"> 0412</option>
+                            <option value="0422"> 0422</option>
+//end foreach
+                    </select>
+
+                </div>
+                <div class="col-md-4 sizephone">
+                    <input type="text" inputmode="numeric" class="form-control" name="telefono" id="tel" placeholder="Ej. 04141234567" maxlength="7">
+                </div>
+            </div>
+
+            <div class="form-group col-md-12 formStyle">
+                <label for="ejemplo_password_3" class="col-md-6 control-label payment_font">Documento de Identificación</label>
+                <div class="col-md-1 size">
+                    <select class="form-control" id="NacCli" name="NacCli" required="">
+
+                            <option value="V"> V</option>
+                            <option value="E"> E</option>
+                            <option value="J"> J</option>
+                            <option value="G"> G</option>
+                            <option value="R"> R</option>
+//end foreach
+                    </select>
+
+                </div>
+                <div class="col-md-4 sizephone">
+                    <input type="text" inputmode="numeric" class="form-control" name="cedula" id="ced" placeholder="Ej. 16123456" maxlength="10">
+                </div>
+            </div>
+
+
+            <div class="form-group col-md-12 formStyle">
+                <label for="ejemplo_password_3" class="col-md-6 control-label payment_font">Banco Destino:</label>
+                <div class="col-md-6">
+                    <select class="form-control" id="banco" name="banco"><option value="">Seleccione</option><option value="0134">BANESCO BANCO UNIVERSAL S.A.C.A.</option><option value="0156">100% BANCO, BANCO UNIVERSAL C.A.</option><option value="0172">BANCAMIGA BANCO UNIVERSAL, C.A.</option><option value="0114">BANCARIBE C.A. BANCO UNIVERSAL</option><option value="0171">BANCO ACTIVO</option><option value="0128">BANCO CARONI C.A. BANCO UNIVERSAL</option><option value="0177">BANCO DE LA FANB</option><option value="0146">BANCO DE LA GENTE EMPRENDEDORA C.A.</option><option value="0102">BANCO DE VENEZUELA</option><option value="0163">BANCO DEL TESORO</option><option value="0007">BANCO DIGITAL DE LOS TRABAJADORES</option><option value="0178">BANCO DIGITAL N58</option><option value="0115">BANCO EXTERIOR C.A. BANCO UNIVERSAL</option><option value="0105">BANCO MERCANTIL</option><option value="0191">BANCO NACIONAL DE CREDITO</option><option value="0138">BANCO PLAZA, BANCO UNIVERSAL</option><option value="0108">BANCO PROVINCIAL</option><option value="0137">BANCO SOFITASA</option><option value="0168">BANCRECER, S.A. BANCO MICROFINANCIERO</option><option value="0174">BANPLUS BANCO UNIVERSAL, C.A.</option><option value="0151">BFC BANCO FONDO COMUN</option><option value="0157">DEL SUR BANCO UNIVERSAL C.A.</option><option value="0601">INSTITUTO MUNICIPAL DE CREDITO POPULAR</option><option value="0169">R4, BANCO MICROFINANCIERO, C.A</option><option value="0104">VENEZOLANO DE CREDITO</option></select>
+                </div>
+            </div>
+
+            <div class="form-group col-md-12 formStyle">
+                <label for="ejemplo_password_3" class="col-md-6 control-label payment_font">Monto:</label>
+                <div class="col-md-6">
+                    <input type="text" inputmode="numeric" data-thousands="." data-decimal="," class="form-control" name="monto" id="monto" placeholder="Ingrese monto a pagar" maxlength="16" autocomplete="off">
+
+                    <i id="msm" style="color:red;"></i>
+                </div>
+            </div>
+
+            <div class="form-group col-md-12 formStyle">
+                <label for="ejemplo_password_3" class="col-md-6 control-label payment_font">Concepto:</label>
+                <div class="col-md-6">
+                    <input type="text" class="form-control" name="concepto" id="concepto" placeholder="Concepto de la transferencia" pattern="[A-Za-z0-9 ]{3,30}" maxlength="30">
+                </div>
+            </div>
+
+            <div class="form-group col-md-12 formStyle" id="nomb" style="display:none">
+                <label for="ejemplo_password_3" class="col-md-6 control-label payment_font">Nombre y Apellido del Beneficiario:</label>
+                <div class="col-md-6">
+                    <input type="text" class="form-control" name="nombre" id="nom" placeholder="Ingrese Nombre y Apellido del Beneficiario" pattern="[A-Za-z]{3,30}" maxlength="30">
+                </div>
+            </div>
+
+            <div class="form-group col-md-12 " id="ckeckhiden">
+                <div class="col-md-12" style="text-align:left">
+                    <label for="ejemplo_password_3" class="control-label">Agregar a pagos frecuentes:</label> <input type="checkbox" class="Tocheck" name="check" id="check">
+                </div>
+
+            </div>
+
+
+
+            <div class="col-md-10">
+
+                <div class="col-md-4">
+                </div>
+
+                <div class="col-md-2">
+                    <button type="reset" class="btn btn-primary" id="habilitar" data-target="#exampleModal">
+                        Borrar
+                    </button>
+                </div>
+
+                <div class="col-md-1">
+                </div>
+
+                <div class="col-md-2">
+                    <button type="button" id="Duplicidad" class="btn btn-primary" data-toggle="modal">
+                        Pagar
+                    </button>
+                </div>
+
+                <div class="col-md-3">
+                </div>
+
+            </div>
+
+        
+            <div class="modal fade" id="ModalValidarDuplicidad" tabindex="-1" role="dialog" aria-labelledby="exampleModalCenterTitle" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-centered" role="document">
+                    <div class="modal-content" style="border: solid green; width: 75%; padding: 1.25em; ">
+                        <div class="modal-header" style=" border-bottom: 0px solid #e5e5">
+                            <h5 class="modal-title " id="exampleModalLongTitle" style="font-weight:bold; color: #545454; font-size: 1.125em; text-align: center; word-wrap: break-word;">POSIBLE OPERACIÓN DUPLICADA<br></h5>
+                        </div>
+                      <div class="modal-body" style="color: #545454; font-size: 1.125em; font-weight: normal; text-align: center; word-wrap: break-word; padding: 0 1.6em;">
+                            Revisa tus movimientos de cuenta, estás intentando
+                            efectuar una transacción con datos similares a otra
+                            realizada recientemente.<br><br>
+
+                            Si deseas continuar, presiona el botón <b>Aceptar</b>.<br>
+                        </div>
+                        <div class="modal-footer" style="text-align: center; border-top: 0px solid #e5e5e5; padding-bottom: 3px;">
+                            <button type="button" class="btn btn-secondary" style="width: 90px; background-color: rgb(110, 120, 129); color: #fff;" data-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-primary" id="enviar" style="width: 90px;">
+                                Aceptar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+    
+
+        </form>
+
+    </div>
+</div>
+
+
+
+
+
+<!-- Modal -->
+
+<div class="modal fade bd-example-modal-lg" id="myModal" tabindex="-1" role="dialog" aria-labelledby="myLargeModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">×</span>
+                </button>
+            </div>
+
+
+            <div class="modal-body">
+
+                <div class="panel panel-default">
+                    <div class="panel-heading">
+                        <div class="ConDiv">
+                            <i class="icon-exclamacion"></i>
+                        </div>
+                        <h3 class="panel-title"><strong>Buenas Tardes,  NOMBRE APELLIDO EJEMPLO </strong></h3>
+                    </div>
+                    <div class="panel-body">
+                        <p class="banesco_info_panel">
+                            Le informamos que al realizar pagos o transferencias a cuentas, tarjetas, números telefónicos o servicios, el sistema le solicitará la Clave de Operaciones Especiales.
+                        </p>
+
+                        <p class="banesco_info_panel">
+                            <b>
+                                Si realiza transacciones hacia otras cuentas, tarjetas o servicios que no estén almacenados en este directorio, recibirá un mensaje de texto en su celular con la Clave de Operaciones Especiales que debe utilizar.
+                            </b>
+                        </p>
+                    </div>
+                </div>
+
+                <div class="table-responsive">
+                    <div id="usu_frecuentes_wrapper" class="dataTables_wrapper no-footer"><div class="dataTables_length" id="usu_frecuentes_length"><label>Mostrar <select name="usu_frecuentes_length" aria-controls="usu_frecuentes" class=""><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option></select> registros</label></div><div id="usu_frecuentes_filter" class="dataTables_filter"><label>Buscar:<input type="search" class="" placeholder="" aria-controls="usu_frecuentes"></label></div><table id="usu_frecuentes" class="display dataTable no-footer" role="grid" aria-describedby="usu_frecuentes_info" style="width: 280px;">
+                        <thead>
+                            <tr id="color_tr" role="row"><th class="sorting_asc" tabindex="0" aria-controls="usu_frecuentes" rowspan="1" colspan="1" aria-sort="ascending" aria-label="Nombre: Activar para ordenar la columna de manera descendente" style="width: 0px;">Nombre</th><th align="center" class="sorting" tabindex="0" aria-controls="usu_frecuentes" rowspan="1" colspan="1" aria-label="Literal: Activar para ordenar la columna de manera ascendente" style="width: 0px;">Literal</th><th class="sorting" tabindex="0" aria-controls="usu_frecuentes" rowspan="1" colspan="1" aria-label="Cedula: Activar para ordenar la columna de manera ascendente" style="width: 0px;">Cedula</th><th class="sorting" tabindex="0" aria-controls="usu_frecuentes" rowspan="1" colspan="1" aria-label="Teléfono: Activar para ordenar la columna de manera ascendente" style="width: 0px;">Teléfono</th><th class="sorting" tabindex="0" aria-controls="usu_frecuentes" rowspan="1" colspan="1" aria-label="Banco: Activar para ordenar la columna de manera ascendente" style="width: 0px;">Banco</th><th style="display: none; width: 0px;" class="sorting" tabindex="0" aria-controls="usu_frecuentes" rowspan="1" colspan="1" aria-label=": Activar para ordenar la columna de manera ascendente"></th><th align="center" class="sorting" tabindex="0" aria-controls="usu_frecuentes" rowspan="1" colspan="1" aria-label="Seleccionar: Activar para ordenar la columna de manera ascendente" style="width: 0px;">Seleccionar</th></tr>
+                        </thead>
+                        <tbody>
+
+                                    
+                                    
+                                    
+                                    
+                                    
+                                    
+                                    
+                                    
+                                    
+                                    
+<!--end if-->
+                        <tr role="row" class="odd">
+                                        <td class="sorting_1">Ejemplo tesoro</td>
+                                        <td align="center">V</td>
+                                        <td>25138342</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0163</td>
+                                        <td>BANCO DEL TESORO</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="even">
+                                        <td class="sorting_1">Ejemplo Ejemplo</td>
+                                        <td align="center">V</td>
+                                        <td>25138342</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0105</td>
+                                        <td>BANCO MERCANTIL</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="odd">
+                                        <td class="sorting_1">dayee</td>
+                                        <td align="center">V</td>
+                                        <td>21375777</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0191</td>
+                                        <td>BANCO NACIONAL DE CREDITO</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="even">
+                                        <td class="sorting_1">Harry potter</td>
+                                        <td align="center">V</td>
+                                        <td>27624133</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0172</td>
+                                        <td>BANCAMIGA BANCO UNIVERSAL, C.A.</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="odd">
+                                        <td class="sorting_1">Henry Ejemplo</td>
+                                        <td align="center">V</td>
+                                        <td>13343432</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0105</td>
+                                        <td>BANCO MERCANTIL</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="even">
+                                        <td class="sorting_1">jesus</td>
+                                        <td align="center">V</td>
+                                        <td>28725483</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0102</td>
+                                        <td>BANCO DE VENEZUELA</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="odd">
+                                        <td class="sorting_1">Luis bodega</td>
+                                        <td align="center">V</td>
+                                        <td>12214532</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0102</td>
+                                        <td>BANCO DE VENEZUELA</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="even">
+                                        <td class="sorting_1">Willy mecanico</td>
+                                        <td align="center">V</td>
+                                        <td>16085056</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0102</td>
+                                        <td>BANCO DE VENEZUELA</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="odd">
+                                        <td class="sorting_1">Yasme</td>
+                                        <td align="center">V</td>
+                                        <td>19223140</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0102</td>
+                                        <td>BANCO DE VENEZUELA</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr><tr role="row" class="even">
+                                        <td class="sorting_1">yender</td>
+                                        <td align="center">V</td>
+                                        <td>30699564</td>
+                                        <td>04141234567</td>
+                                        <td style="display:none">0102</td>
+                                        <td>BANCO DE VENEZUELA</td>
+                                        <td align="center"><button class="prb" id="buttonx"><i class="fas fa-check-double"></i></button> </td>
+                                    </tr></tbody>
+                    </table><div class="dataTables_info" id="usu_frecuentes_info" role="status" aria-live="polite">Mostrando registros del 1 al 10 de un total de 10 registros</div><div class="dataTables_paginate paging_simple_numbers" id="usu_frecuentes_paginate"><a class="paginate_button previous disabled" aria-controls="usu_frecuentes" data-dt-idx="0" tabindex="0" id="usu_frecuentes_previous">Anterior</a><span><a class="paginate_button current" aria-controls="usu_frecuentes" data-dt-idx="1" tabindex="0">1</a></span><a class="paginate_button next disabled" aria-controls="usu_frecuentes" data-dt-idx="2" tabindex="0" id="usu_frecuentes_next">Siguiente</a></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+        </div>
+    </div>
+
+
+    
+
+
+
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+
+    
+    
+    
+
+
+
+    
+
+
+
+  
+
+    
+
+
+
+
+</body></html>

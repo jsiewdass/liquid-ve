@@ -20,12 +20,10 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from contextlib import AsyncExitStack, asynccontextmanager
-from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,18 +42,16 @@ from app.domain.enums import (
     BankCode,
     BankTransactionDirection,
     OrderStatus,
+    OrderType,
     PaymentVerificationStatus,
 )
-from app.domain.schemas import RiskAssessment
 from app.infrastructure.clients.binance_client import BinanceC2CClient
 from app.infrastructure.clients.cachicamo_client import CachicamoClient
 from app.infrastructure.clients.sms_gateway import SmsGatewayClient
-from app.infrastructure.models import AuditLog, BankTransaction, DailyVolumeLedger, P2POrder
+from app.infrastructure.models import AuditLog, BankTransaction, P2POrder
+from app.services.risk_policy import RiskPolicy
 
 logger = get_logger("sell_flow")
-
-_ZERO = Decimal("0.00")
-_CENT = Decimal("0.01")
 
 
 class SellFlow:
@@ -226,116 +222,6 @@ class SellFlow:
         )
         await self._session.flush()
 
-    def _dialect_name(self) -> str:
-        """Return the active SQL dialect name.
-
-        Returns:
-            The dialect name, defaulting to ``sqlite`` when unbound.
-        """
-        try:
-            return self._session.get_bind().dialect.name
-        except Exception:  # noqa: BLE001 - defensive, reports sqlite semantics
-            return "sqlite"
-
-    async def _load_or_create_ledger(self, session: AsyncSession) -> DailyVolumeLedger:
-        """Load today's VES ledger, creating it atomically when missing.
-
-        On PostgreSQL the row is locked with ``SELECT ... FOR UPDATE``.  On
-        SQLite an ``INSERT ... ON CONFLICT DO NOTHING`` guard makes creation
-        race-free before the read.
-
-        Returns:
-            The ledger row for today.
-        """
-        today = datetime.now(timezone.utc).date()
-        if self._dialect_name() == "postgresql":
-            result = await session.execute(
-                select(DailyVolumeLedger)
-                .where(
-                    DailyVolumeLedger.ledger_date == today,
-                    DailyVolumeLedger.currency == "VES",
-                )
-                .with_for_update()
-            )
-            ledger = result.scalar_one_or_none()
-            if ledger is None:
-                ledger = DailyVolumeLedger(
-                    ledger_date=today,
-                    currency="VES",
-                    total_volume=_ZERO,
-                    transaction_count=0,
-                )
-                session.add(ledger)
-                await session.flush()
-            return ledger
-        statement = (
-            sqlite_insert(DailyVolumeLedger)
-            .values(
-                ledger_date=today,
-                currency="VES",
-                total_volume=_ZERO,
-                transaction_count=0,
-            )
-            .on_conflict_do_nothing(
-                index_elements=[
-                    DailyVolumeLedger.ledger_date,
-                    DailyVolumeLedger.currency,
-                ]
-            )
-        )
-        await session.execute(statement)
-        result = await session.execute(
-            select(DailyVolumeLedger).where(
-                DailyVolumeLedger.ledger_date == today,
-                DailyVolumeLedger.currency == "VES",
-            )
-        )
-        return result.scalar_one()
-
-    async def _assess_risk(self, amount_ves: Decimal, session: AsyncSession) -> RiskAssessment:
-        """Evaluate per-transaction and daily limits.
-
-        The ledger is incremented only when the transaction is allowed, which
-        keeps the counter an accurate reservation.
-
-        Args:
-            amount_ves: Transaction amount in VES.
-            session: Session used for the ledger read/write.
-
-        Returns:
-            The risk assessment.
-        """
-        ledger = await self._load_or_create_ledger(session)
-        projected = (ledger.total_volume + amount_ves).quantize(_CENT)
-        limits = {
-            "max_tx_amount_ves": str(self._settings.max_tx_amount_ves),
-            "daily_limit_ves": str(self._settings.daily_limit_ves),
-            "max_usdt_per_order": str(self._settings.max_usdt_per_order),
-        }
-        reason: str | None = None
-        if amount_ves > self._settings.max_tx_amount_ves:
-            reason = "Transaction amount exceeds the per-transaction limit"
-        elif projected > self._settings.daily_limit_ves:
-            reason = "Projected daily volume exceeds the daily limit"
-        if reason is not None:
-            return RiskAssessment(
-                allowed=False,
-                requires_manual_review=self._settings.manual_review_on_limit,
-                reason=reason,
-                projected_daily_volume_ves=projected,
-                limits=limits,
-            )
-        ledger.total_volume = projected
-        ledger.transaction_count = ledger.transaction_count + 1
-        await session.flush()
-        return RiskAssessment(
-            allowed=True,
-            requires_manual_review=False,
-            reason=None,
-            projected_daily_volume_ves=projected,
-            limits=limits,
-        )
-
     async def execute(self, order_number: str) -> P2POrder:
         """Register a sell order and evaluate risk.
 
@@ -352,6 +238,12 @@ class SellFlow:
         async with self._clients() as (binance, _cachicamo, _sms):
             await self._ensure_order_idempotent(order_number)
             detail = await binance.get_order_detail(order_number)
+            if detail.trade_type is not OrderType.SELL:
+                raise InvalidStateTransitionError(
+                    f"Order {order_number} is not a SELL order",
+                    code="direction_mismatch",
+                    details={"order_type": detail.trade_type.value},
+                )
             order = P2POrder(
                 order_number=detail.order_number,
                 external_order_id=detail.order_number,
@@ -380,7 +272,11 @@ class SellFlow:
                 AuditActor.WORKER,
                 "Sell order persisted from Binance",
             )
-            assessment = await self._assess_risk(order.amount_fiat, self._session)
+            policy = RiskPolicy(self._session, self._settings)
+            assessment = await policy.assess_shared(
+                amount_ves=order.amount_fiat,
+                amount_asset=order.amount_asset,
+            )
             order.risk_checked = True
             if not assessment.allowed:
                 order.manual_review_reason = assessment.reason
@@ -428,6 +324,12 @@ class SellFlow:
         """
         async with self._clients() as (binance, cachicamo, _sms):
             order = await self._get_order(order_number)
+            if order.order_type is not OrderType.SELL:
+                raise InvalidStateTransitionError(
+                    f"Order {order_number} is not a SELL order",
+                    code="direction_mismatch",
+                    details={"order_type": order.order_type.value},
+                )
             transaction = BankTransaction(
                 order_id=order.id,
                 bank_reference=bank_reference,

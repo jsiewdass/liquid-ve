@@ -120,11 +120,22 @@ class P2POrder(TimestampMixin, Base):
     amount_fiat: Mapped[Decimal] = mapped_column(Numeric(24, 2), nullable=False)
     counterparty_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     counterparty_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    counterparty_id_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
     bank_code: Mapped[BankCode | None] = mapped_column(
         Enum(BankCode, native_enum=False, length=32, name="p2p_order_bank_code"),
         nullable=True,
     )
     bank_reference: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    sms_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    sms_sent_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    bank_short_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    bank_confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     risk_checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     manual_review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
