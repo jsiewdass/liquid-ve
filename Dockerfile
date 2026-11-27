@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # --- builder: compile wheels once so the runtime image stays slim ------------
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -17,7 +17,7 @@ COPY requirements.txt ./
 RUN pip wheel --wheel-dir=/wheels -r requirements.txt
 
 # --- runtime ----------------------------------------------------------------
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -39,13 +39,14 @@ COPY alembic.ini ./
 
 RUN mkdir -p /app/data && chown -R appuser:appuser /app
 
-USER appuser
+ARG INSTALL_CHROMIUM=false
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN if [ "$INSTALL_CHROMIUM" = "true" ]; then \
+        python -m playwright install --with-deps chromium \
+        && chmod -R a+rX /ms-playwright; \
+    fi
 
-# Optional: browser-driven adapters need Chromium plus its system libraries.
-# Build a separate stage instead of bloating the runtime image, for example:
-#   FROM mcr.microsoft.com/playwright/python:v1.49.1-noble AS browsers
-#   RUN playwright install --with-deps chromium
-# then copy /ms-playwright into this stage and set PLAYWRIGHT_BROWSERS_PATH.
+USER appuser
 
 EXPOSE 8000
 

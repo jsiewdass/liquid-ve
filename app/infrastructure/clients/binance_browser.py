@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.core.exceptions import (
-    BankSmsParseError,
+    BankAmountParseError,
     ExternalServiceError,
     ExternalServiceResponseError,
 )
@@ -169,7 +169,7 @@ def _parse_amount_ves(text: str | None) -> Decimal | None:
         return None
     try:
         return parse_ves_amount(normalized)
-    except BankSmsParseError:
+    except BankAmountParseError:
         return None
 
 

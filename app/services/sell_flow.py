@@ -47,7 +47,6 @@ from app.domain.enums import (
 )
 from app.infrastructure.clients.binance_client import BinanceC2CClient
 from app.infrastructure.clients.cachicamo_client import CachicamoClient
-from app.infrastructure.clients.sms_gateway import SmsGatewayClient
 from app.infrastructure.models import AuditLog, BankTransaction, P2POrder
 from app.services.risk_policy import RiskPolicy
 
@@ -68,7 +67,6 @@ class SellFlow:
         settings: Settings | None = None,
         binance: BinanceC2CClient | None = None,
         cachicamo: CachicamoClient | None = None,
-        sms: SmsGatewayClient | None = None,
     ) -> None:
         """Initialize the flow.
 
@@ -77,22 +75,20 @@ class SellFlow:
             settings: Optional settings override.
             binance: Optional Binance client override.
             cachicamo: Optional Cachicamo client override.
-            sms: Optional SMS gateway client override.
         """
         self._session = session
         self._settings = settings or get_settings()
         self._binance = binance
         self._cachicamo = cachicamo
-        self._sms = sms
 
     @asynccontextmanager
     async def _clients(
         self,
-    ) -> AsyncIterator[tuple[BinanceC2CClient, CachicamoClient, SmsGatewayClient]]:
+    ) -> AsyncIterator[tuple[BinanceC2CClient, CachicamoClient]]:
         """Yield the clients, owning only the ones created here.
 
         Yields:
-            A tuple of Binance, Cachicamo and SMS clients.
+            A tuple of Binance and Cachicamo clients.
         """
         async with AsyncExitStack() as stack:
             binance = self._binance
@@ -101,10 +97,8 @@ class SellFlow:
             cachicamo = self._cachicamo
             if cachicamo is None:
                 cachicamo = await stack.enter_async_context(CachicamoClient(self._settings))
-            sms = self._sms
-            if sms is None:
-                sms = await stack.enter_async_context(SmsGatewayClient(self._settings))
-            yield binance, cachicamo, sms
+
+            yield binance, cachicamo
 
     async def _get_order(self, order_number: str) -> P2POrder:
         """Load an order by number.
@@ -235,7 +229,7 @@ class SellFlow:
         Returns:
             The persisted order, in ``PENDING`` or ``MANUAL_REVIEW``.
         """
-        async with self._clients() as (binance, _cachicamo, _sms):
+        async with self._clients() as (binance, _cachicamo):
             await self._ensure_order_idempotent(order_number)
             detail = await binance.get_order_detail(order_number)
             if detail.trade_type is not OrderType.SELL:
@@ -322,7 +316,7 @@ class SellFlow:
             NotFoundError: If the order does not exist.
             InvalidStateTransitionError: If the order cannot accept a payment.
         """
-        async with self._clients() as (binance, cachicamo, _sms):
+        async with self._clients() as (binance, cachicamo):
             order = await self._get_order(order_number)
             if order.order_type is not OrderType.SELL:
                 raise InvalidStateTransitionError(

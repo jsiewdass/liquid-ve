@@ -99,6 +99,7 @@ class P2POrder(TimestampMixin, Base):
         CheckConstraint("amount_asset > 0", name="amount_asset_positive"),
         CheckConstraint("amount_fiat > 0", name="amount_fiat_positive"),
         Index("ix_p2p_orders_status", "status"),
+        Index("ix_p2p_orders_payment_slot", "payment_slot", unique=True),
     )
 
     id: Mapped[int] = mapped_column(_bigint_pk(), primary_key=True, autoincrement=True)
@@ -126,6 +127,7 @@ class P2POrder(TimestampMixin, Base):
         nullable=True,
     )
     bank_reference: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    # Historical telemetry. The current payment rail does not write these fields.
     sms_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     sms_sent_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
@@ -136,6 +138,8 @@ class P2POrder(TimestampMixin, Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    payment_slot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    receipt_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True, unique=True)
     risk_checked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     manual_review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

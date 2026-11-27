@@ -95,7 +95,6 @@ async def readiness(request: Request, response: Response) -> HealthResponse:
     timeout = _DEFAULT_TIMEOUT_SECONDS
     binance = getattr(request.app.state, "binance", None)
     cachicamo = getattr(request.app.state, "cachicamo", None)
-    sms = getattr(request.app.state, "sms", None)
 
     components = await asyncio.gather(
         _probe("database", check_database_health, timeout),
@@ -111,12 +110,6 @@ async def readiness(request: Request, response: Response) -> HealthResponse:
             timeout,
             missing_detail=None if cachicamo is not None else "client not initialized",
         ),
-        _probe(
-            "sms_gateway",
-            sms.health_check if sms is not None else _always_false,
-            timeout,
-            missing_detail=None if sms is not None else "client not initialized",
-        ),
         return_exceptions=True,
     )
 
@@ -127,7 +120,7 @@ async def readiness(request: Request, response: Response) -> HealthResponse:
         else:
             normalized.append(
                 HealthComponent(
-                    name=["database", "binance_c2c", "cachicamo", "sms_gateway"][index],
+                    name=["database", "binance_c2c", "cachicamo"][index],
                     healthy=False,
                     latency_ms=0.0,
                     detail=type(component).__name__,

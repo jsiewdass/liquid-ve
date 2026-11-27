@@ -6,21 +6,21 @@ page objects from :mod:`app.infrastructure.clients.banesco_pages` in order:
     login -> security questions -> clave -> ad modal -> menu -> Pago Móvil
 
 ``playwright.async_api`` is imported lazily inside :meth:`BanescoBrowser.__aenter__`
-only.  Required settings are validated before that import, so a missing
-credential or answer fails with a typed configuration error in a browser-free
-process.  This slice deliberately exposes no ``pay()``: it stops on the Pago
-Móvil form and never touches a form control or a payment button.
+only. Credentials are validated before the browser is launched.
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from app.core.exceptions import (
     BanescoLayoutUnexpected,
     BanescoLoginFailed,
+    BanescoPaymentOutcomeUnknown,
     ConfigurationError,
 )
 from app.domain.banesco import (
@@ -32,6 +32,7 @@ from app.infrastructure.clients.banesco_pages import (
     LOGIN_FRAME_NAME,
     MENU_SELECTORS,
     PAGOMOVIL_FRAME_NAME,
+    RECEIPT_HEADING,
     SCREEN_ANCHOR_SELECTORS,
     AdModalPage,
     ClaveDinamicaPage,
@@ -44,12 +45,20 @@ from app.infrastructure.clients.banesco_pages import (
     SecurityQuestionsPage,
     detect_login_error,
     detect_screen,
+    parse_receipt,
 )
 
 if TYPE_CHECKING:
     from app.core.config import Settings
 
 __all__ = ["BanescoBrowser"]
+
+@dataclass(frozen=True, slots=True)
+class BanescoReceipt:
+    reference: str
+    amount: Decimal
+    image: bytes
+
 
 _ANSWER_SETTING_NAMES: tuple[str, ...] = tuple(
     QUESTION_ANSWER_SETTINGS[key] for key in QuestionKey
@@ -229,6 +238,7 @@ class BanescoBrowser:
             settings: Application settings for the Banesco rail.
         """
         self._settings = settings
+        self._authorization_started = False
         self._playwright: Any | None = None
         self._browser: Any | None = None
         self._context: Any | None = None
@@ -570,26 +580,8 @@ class BanescoBrowser:
         await view.wait_for_load_state("domcontentloaded")
         return await self._payment_view()
 
-    async def fill_and_submit_payment(
-        self, target: BanescoPaymentTarget
-    ) -> None:
-        """Fill the Pago Móvil form, double-submit and detect the clave form.
-
-        The composition is: ``login`` (user, questions, clave, ad modal) →
-        menu (``Pago Móvil`` → ``Enviar pago``) → fill the form from ``target``
-        → first ``Pagar`` (``#enviar``) → observe the confirmation
-        (``#butonPago``) → second ``Pagar`` → assert the Clave Dinámica form is
-        present.  It never touches ``#otp``, never clicks ``#acceptar`` and never
-        retries a step.
-
-        Args:
-            target: Validated two-control payment target.
-
-        Raises:
-            ConfigurationError: When a required setting is missing.
-            PaymentRailError: Any typed fail-closed login, navigation, mapping,
-                confirmation or layout failure.
-        """
+    async def fill_and_submit_payment(self, target: BanescoPaymentTarget) -> None:
+        """Prepare the payment and leave the bank session at the authorization form."""
         await self.login()
         page = self._page
         if page is None:  # pragma: no cover - login() guarantees a page
@@ -609,8 +601,44 @@ class BanescoBrowser:
             await self._payment_view(), timeout_ms=timeout
         )
         await confirmation.assert_confirmation()
+        await confirmation.verify_target(target)
         await confirmation.submit_second()
 
         await ClaveDinamicaPage(
             await self._payment_view(), timeout_ms=timeout
         ).assert_present()
+
+    async def authorize_payment(self, code: str, deadline: float) -> None:
+        """Submit once within the browser operation timeout."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise asyncio.TimeoutError
+        if self._authorization_started:
+            raise BanescoPaymentOutcomeUnknown()
+        self._authorization_started = True
+
+        async def submit() -> None:
+            view = await self._payment_view()
+            await ClaveDinamicaPage(view, timeout_ms=max(1, int(remaining * 1000))).authorize(code, deadline)
+
+        await asyncio.wait_for(submit(), timeout=remaining)
+
+    async def read_receipt(self) -> BanescoReceipt:
+        """Read and capture a positive receipt from the current session."""
+        deadline = time.monotonic() + self._settings.banesco_browser_timeout_ms / 1000
+        while time.monotonic() < deadline:
+            view = await self._payment_view()
+            try:
+                await view.wait_for_selector(f"text={RECEIPT_HEADING}", timeout=500)
+                reference, amount = parse_receipt(await view.content())
+            except Exception:
+                await asyncio.sleep(0.1)
+                continue
+            if self._page is None:
+                break
+            image = await self._page.screenshot()
+            after_reference, after_amount = parse_receipt(await view.content())
+            if (reference, amount) != (after_reference, after_amount):
+                break
+            return BanescoReceipt(reference=reference, amount=amount, image=image)
+        raise BanescoPaymentOutcomeUnknown()

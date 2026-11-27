@@ -434,10 +434,10 @@ def test_ledger_rename_aggregates_collisions_and_rolls_back(migration_db: Path) 
     assert not any(currency == "VES_PAY" for _, currency in rows)
 
 
-def test_upgrade_head_and_downgrade_minus_one_on_fresh_sqlite(
+def test_upgrade_head_and_downgrade_across_legacy_revisions(
     migration_db: Path,
 ) -> None:
-    """The full chain upgrades, seeds, downgrades ``-1`` and re-upgrades cleanly."""
+    """The full chain upgrades, seeds, downgrades to the old payout schema and re-upgrades cleanly."""
     config = _alembic_config()
     command.upgrade(config, "head")
 
@@ -447,7 +447,7 @@ def test_upgrade_head_and_downgrade_minus_one_on_fresh_sqlite(
     _insert_order(migration_db, "ORD-FRESH-DONE", "COMPLETED")
     _insert_ledger(migration_db, "2026-11-25", "VES_PAY", "1500.00", 1)
 
-    command.downgrade(config, "-1")
+    command.downgrade(config, PREVIOUS_REVISION)
 
     assert _order_status(migration_db, "ORD-FRESH-PAY") == "SENDING_SMS"
     assert _order_status(migration_db, "ORD-FRESH-AWAIT") == "MANUAL_REVIEW"
@@ -469,3 +469,24 @@ def test_upgrade_head_and_downgrade_minus_one_on_fresh_sqlite(
     rows = _ledger_rows(migration_db)
     assert rows[("2026-11-25", "VES_PAY")] == (Decimal("1500.00"), 1)
     assert ("2026-11-25", "VES_SMS") not in rows
+
+
+def test_banesco_migration_preserves_existing_payment_history(migration_db: Path) -> None:
+    config = _alembic_config()
+    command.upgrade(config, "20261125_0003")
+    _insert_order(migration_db, "ORD-HISTORICAL", "COMPLETED")
+    _execute(
+        migration_db,
+        "UPDATE p2p_orders SET sms_message_id = ?, bank_reference = ? WHERE order_number = ?",
+        ("historical-message", "prior-bank-ref", "ORD-HISTORICAL"),
+    )
+    command.upgrade(config, "head")
+    assert {"receipt_sha256", "payment_slot"} <= set(_table_info(migration_db))
+    _insert_order(migration_db, "ORD-BANESCO-PAID", "PAYMENT_CONFIRMED")
+    command.downgrade(config, "-1")
+    rows = _query(
+        migration_db,
+        "SELECT sms_message_id, bank_reference FROM p2p_orders WHERE order_number = 'ORD-HISTORICAL'",
+    )
+    assert rows == [("historical-message", "prior-bank-ref")]
+    assert _order_status(migration_db, "ORD-BANESCO-PAID") == "MANUAL_REVIEW"

@@ -233,7 +233,7 @@ def test_confirmation_parser_extracts_expected_fields() -> None:
     # The fixture's synthetic document value is deliberately fake.
     assert summary.beneficiary_name == ""
     assert summary.beneficiary_phone == "04141234567"
-    assert summary.beneficiary_document == "V 1500,00"
+    assert summary.beneficiary_document == "V 12345678"
     assert summary.destination_bank == "BANESCO BANCO UNIVERSAL S.A.C.A."
     assert summary.amount_ves == Decimal("1500.00")
     assert summary.concept == "pago"

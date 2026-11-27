@@ -1,4 +1,4 @@
-"""Inbound webhooks for Cachicamo and the SMS gateway.
+"""Inbound webhooks for Cachicamo.
 
 Idempotency contract: an inbound webhook is recorded in ``webhook_events``
 under the ``(provider, external_event_id)`` unique constraint *before* any
@@ -23,18 +23,14 @@ from app.core.logging import get_logger, request_id_var
 from app.core.security import (
     CachicamoWebhookVerifier,
     hash_payload,
-    require_bearer_token,
 )
 from app.domain.enums import AuditActor, AuditEvent, OrderStatus, OrderType
 from app.domain.schemas import (
     CachicamoWebhookPayload,
-    SmsInboundWebhookPayload,
-    SmsWebhookResponse,
     WebhookAcceptedResponse,
 )
 from app.infrastructure.database import get_session
 from app.infrastructure.models import AuditLog, P2POrder, WebhookEvent
-from app.services.buy_flow import BuyFlow
 from app.services.sell_flow import SellFlow
 
 logger = get_logger("webhooks")
@@ -59,33 +55,20 @@ def _request_settings(request: Request) -> Settings:
     return attached if isinstance(attached, Settings) else get_settings()
 
 
-def _clients(request: Request) -> tuple[Any, Any, Any]:
+def _clients(request: Request) -> tuple[Any, Any]:
     """Return the clients created during application startup.
 
     Args:
         request: Current request.
 
     Returns:
-        A ``(binance, cachicamo, sms)`` tuple; elements may be ``None`` when
+        A ``(binance, cachicamo)`` tuple; elements may be ``None`` when
         the app was created without a lifespan (for example in tests).
     """
     return (
         getattr(request.app.state, "binance", None),
         getattr(request.app.state, "cachicamo", None),
-        getattr(request.app.state, "sms", None),
     )
-
-
-def _browser(request: Request) -> Any:
-    """Return the optional browser adapter created during startup.
-
-    Args:
-        request: Current request.
-
-    Returns:
-        The browser port, or ``None`` when automation is disabled.
-    """
-    return getattr(request.app.state, "browser", None)
 
 
 async def _store_event(session: AsyncSession, event: WebhookEvent) -> bool:
@@ -162,78 +145,6 @@ async def cachicamo_webhook(
     message = await _dispatch_cachicamo(request, session, payload)
     await _mark_processed(session, _CACHICAMO_PROVIDER, event_id, None)
     return WebhookAcceptedResponse(accepted=True, event_id=event_id, message=message)
-
-
-@router.post(
-    "/sms",
-    status_code=202,
-    response_model=SmsWebhookResponse,
-    summary="Receive an inbound SMS notification",
-    dependencies=[Depends(require_bearer_token)],
-)
-async def sms_webhook(
-    request: Request,
-    session: SessionDep,
-) -> SmsWebhookResponse:
-    """Handle an inbound SMS notification.
-
-    The webhook is a thin adapter over :meth:`BuyFlow.confirm_bank_payment`, so
-    the poller and the HTTP path share one dedupe anchor and one outcome
-    vocabulary.  Every delivery is answered with HTTP 202; a duplicate is
-    flagged rather than rejected.
-
-    Args:
-        request: Raw request.
-        session: Database session dependency.
-
-    Returns:
-        The enriched acceptance envelope.
-    """
-    payload = SmsInboundWebhookPayload.model_validate_json(await request.body())
-    binance, cachicamo, sms = _clients(request)
-    flow = BuyFlow(
-        session,
-        settings=_request_settings(request),
-        binance=binance,
-        cachicamo=cachicamo,
-        sms=sms,
-        browser=_browser(request),
-    )
-    confirmation = await flow.confirm_bank_payment(
-        message_id=payload.message_id,
-        sender=payload.sender,
-        body=payload.body,
-        received_at=payload.received_at,
-    )
-    return SmsWebhookResponse(
-        accepted=True,
-        event_id=payload.message_id,
-        duplicate=confirmation.duplicate,
-        message=_sms_message(confirmation.outcome, confirmation.duplicate),
-        outcome=confirmation.outcome,
-        order_number=confirmation.order_number,
-        reason=confirmation.reason,
-    )
-
-
-def _sms_message(outcome: str, duplicate: bool) -> str:
-    """Render the human readable acceptance message for an SMS delivery.
-
-    Args:
-        outcome: Confirmation outcome vocabulary.
-        duplicate: Whether the message was an already processed replay.
-
-    Returns:
-        A short, PII-free message.
-    """
-    if duplicate:
-        return "SMS already processed"
-    return {
-        "confirmed": "SMS confirmed an order",
-        "matched": "SMS matched an order",
-        "ambiguous": "SMS matched more than one order",
-        "no_match": "SMS stored; no matching order",
-    }.get(outcome, "SMS stored; no matching order")
 
 
 async def _mark_processed(
@@ -340,13 +251,12 @@ async def _dispatch_cachicamo(
     rejection = await _reject_non_sell_order(session, order)
     if rejection is not None:
         return rejection
-    binance, cachicamo, sms = _clients(request)
+    binance, cachicamo = _clients(request)
     flow = SellFlow(
         session,
         settings=_request_settings(request),
         binance=binance,
         cachicamo=cachicamo,
-        sms=sms,
     )
     try:
         await flow.handle_incoming_payment(

@@ -12,10 +12,12 @@ Two hard rules drive this file:
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import re
 import subprocess
 import sys
+import time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -29,6 +31,7 @@ from app.core.exceptions import (
     BanescoAdModalBlocked,
     BanescoCaptchaDetected,
     BanescoLoginFailed,
+    BanescoPaymentOutcomeUnknown,
 )
 from app.domain.banesco import BanescoPaymentTarget
 from app.infrastructure.clients.banesco_browser import BanescoBrowser
@@ -529,24 +532,23 @@ async def test_fill_and_submit_payment_composes_and_never_touches_otp(
         phone_rest="1234567",
         id_type="V",
         id_digits="12345678",
-        destination_bank_code="0102",
-        destination_bank_option="BANCO DE VENEZUELA",
-        amount_ves=Decimal("100.00"),
+        destination_bank_code="0134",
+        destination_bank_option="BANESCO BANCO UNIVERSAL S.A.C.A.",
+        amount_ves=Decimal("1500.00"),
         concept="Pago",
     )
 
     async with BanescoBrowser(test_settings) as browser:
-        result = await browser.fill_and_submit_payment(target)
+        await browser.fill_and_submit_payment(target)
 
-    assert result is None
     assert ("click", MENU_SELECTORS["pago_movil"]) in page.actions
     assert ("click", MENU_SELECTORS["enviar_pago"]) in page.actions
     assert ("select_option", "#pref", "0414") in page.actions
     assert ("fill", "#tel", "1234567") in page.actions
     assert ("select_option", "#NacCli", "V") in page.actions
     assert ("fill", "#ced", "12345678") in page.actions
-    assert ("select_option", "#banco", "0102") in page.actions
-    assert ("fill", "#monto", "100,00") in page.actions
+    assert ("select_option", "#banco", "0134") in page.actions
+    assert ("fill", "#monto", "1500,00") in page.actions
     assert ("fill", "#concepto", "Pago") in page.actions
     assert not [
         action
@@ -570,6 +572,25 @@ async def test_fill_and_submit_payment_composes_and_never_touches_otp(
         and action[1] in ("#otp", "#acceptar")
     ]
     assert forbidden == []
+
+
+async def test_authorization_click_is_once_and_never_after_deadline(test_settings: Settings) -> None:
+    page = _ScriptedPage(_read_fixture(SCREEN_FIXTURES[Screen.CLAVE_DINAMICA]))
+    browser = BanescoBrowser(test_settings)
+    browser._page = page
+
+    with pytest.raises(asyncio.TimeoutError):
+        await browser.authorize_payment("012345", time.monotonic() - 1)
+    assert page.actions == []
+
+    deadline = time.monotonic() + 1
+    await browser.authorize_payment("012345", deadline)
+    with pytest.raises(BanescoPaymentOutcomeUnknown):
+        await browser.authorize_payment("012345", deadline)
+    assert [action for action in page.actions if action[0] in {"fill", "click"}] == [
+        ("fill", "#otp", "012345"),
+        ("click", "#acceptar"),
+    ]
 
 
 def test_banesco_adapter_import_is_browser_free_in_subprocess() -> None:

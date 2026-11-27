@@ -8,7 +8,7 @@ when no ``.env`` file exists.
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from collections.abc import AsyncIterator, Iterator
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -23,16 +23,11 @@ os.environ.setdefault(
     "CACHICAMO_WEBHOOK_SECRET",
     "test-cachicamo-webhook-secret-0123456789abcdef",
 )
-os.environ.setdefault("SMS_GATEWAY_BASE_URL", "http://100.64.0.10:8080")
-os.environ.setdefault("SMS_GATEWAY_TOKEN", "test-sms-gateway-token")
 os.environ.setdefault("MAX_TX_AMOUNT_VES", "5000.00")
 os.environ.setdefault("DAILY_LIMIT_VES", "20000.00")
 os.environ.setdefault("MAX_USDT_PER_ORDER", "1000.00000000")
 os.environ.setdefault("MAX_BUY_AMOUNT_VES", "5000.00")
 os.environ.setdefault("DAILY_PAY_LIMIT_VES", "20000.00")
-# Deprecated alias kept for one release; both names resolve to the same cap.
-os.environ.setdefault("DAILY_SMS_LIMIT_VES", "20000.00")
-os.environ.setdefault("PAYMENT_CONFIRMATION_TIMEOUT_SECONDS", "300")
 os.environ.setdefault("BANESCO_RAIL_ENABLED", "false")
 os.environ.setdefault("BANESCO_ONLINE_LOGIN_URL", "https://www.banesco.com/")
 os.environ.setdefault("BANESCO_ONLINE_USER", "test-banesco-user")
@@ -57,10 +52,7 @@ os.environ.setdefault("TELEGRAM_ENABLED", "false")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-telegram-bot-token")
 os.environ.setdefault("TELEGRAM_OPERATOR_CHAT_ID", "123456789")
 os.environ.setdefault("TELEGRAM_API_BASE_URL", "https://api.telegram.org")
-os.environ.setdefault("TELEGRAM_CLAVE_TIMEOUT_SECONDS", "300")
-os.environ.setdefault("TELEGRAM_ID_TYPE_TIMEOUT_SECONDS", "300")
-os.environ.setdefault("TELEGRAM_POLL_TIMEOUT_SECONDS", "30")
-os.environ.setdefault("TELEGRAM_MAX_CLARIFICATIONS", "2")
+os.environ.setdefault("TELEGRAM_CLAVE_TIMEOUT_SECONDS", "30")
 os.environ.setdefault("RECEIPT_STORAGE_DIR", "./data/receipts")
 os.environ.setdefault("RECEIPT_RETENTION_DAYS", "30")
 os.environ.setdefault("RELEASE_WATCHER_ENABLED", "false")
@@ -93,7 +85,6 @@ from app.infrastructure.clients.binance_client import BinanceC2COrder  # noqa: E
 from app.infrastructure.clients.cachicamo_client import (  # noqa: E402
     CachicamoVerificationResult,
 )
-from app.infrastructure.clients.sms_gateway import SmsSendResult  # noqa: E402
 from app.infrastructure.database import (  # noqa: E402
     create_all,
     dispose_engine,
@@ -274,53 +265,6 @@ class FakeBrowser:
         self.events.append(("notify", self._notify_count, reference))
         if self.notify_error is not None:
             raise self.notify_error
-
-
-class FakeSms:
-    """Records outgoing SMS calls and scripts gateway failures.
-
-    Attributes:
-        calls: Recorded ``(phone_number, message, idempotency_key)`` tuples.
-        errors: Exceptions raised in order on the next sends.
-        on_send: Optional async hook invoked on every send before its outcome.
-    """
-
-    def __init__(self) -> None:
-        """Initialize an empty recording double."""
-        self.calls: list[tuple[str, str, str]] = []
-        self.errors: list[Exception] = []
-        self.on_send: Callable[[str], Awaitable[None]] | None = None
-
-    async def send_sms(
-        self,
-        *,
-        phone_number: str,
-        message: str,
-        idempotency_key: str,
-    ) -> SmsSendResult:
-        """Record the send and return a deterministic result.
-
-        Args:
-            phone_number: Destination short code.
-            message: Command body.
-            idempotency_key: Stable key for this message.
-
-        Returns:
-            A deterministic ``SENT`` result.
-
-        Raises:
-            Exception: The next scripted ``errors`` entry, when present.
-        """
-        self.calls.append((phone_number, message, idempotency_key))
-        if self.on_send is not None:
-            await self.on_send(phone_number)
-        if self.errors:
-            raise self.errors.pop(0)
-        return SmsSendResult(
-            message_id=f"msg-{len(self.calls)}",
-            status="SENT",
-            sent_at=datetime.now(timezone.utc),
-        )
 
 
 BANESCO_FIXTURE_CATALOG: tuple[str, ...] = (
@@ -676,15 +620,11 @@ def test_settings(tmp_path: Path) -> Settings:
         cachicamo_base_url="http://localhost:9001",
         cachicamo_api_key="test-cachicamo-api-key",
         cachicamo_webhook_secret="test-cachicamo-webhook-secret-0123456789abcdef",
-        sms_gateway_base_url="http://100.64.0.10:8080",
-        sms_gateway_token="test-sms-gateway-token",
         max_tx_amount_ves=Decimal("5000.00"),
         daily_limit_ves=Decimal("20000.00"),
         max_usdt_per_order=Decimal("1000.00000000"),
         max_buy_amount_ves=Decimal("5000.00"),
         daily_pay_limit_ves=Decimal("20000.00"),
-        daily_sms_limit_ves=Decimal("20000.00"),
-        payment_confirmation_timeout_seconds=300,
         banesco_rail_enabled=False,
         banesco_online_login_url="https://www.banesco.com/",
         banesco_online_user="test-banesco-user",
@@ -703,10 +643,7 @@ def test_settings(tmp_path: Path) -> Settings:
         telegram_bot_token="test-telegram-bot-token",
         telegram_operator_chat_id=123456789,
         telegram_api_base_url="https://api.telegram.org",
-        telegram_clave_timeout_seconds=300,
-        telegram_id_type_timeout_seconds=300,
-        telegram_poll_timeout_seconds=30,
-        telegram_max_clarifications=2,
+        telegram_clave_timeout_seconds=30,
         receipt_storage_dir=str(tmp_path / "receipts"),
         receipt_retention_days=30,
         release_watcher_enabled=False,
@@ -800,16 +737,6 @@ def fake_browser() -> FakeBrowser:
         A fresh double per test.
     """
     return FakeBrowser()
-
-
-@pytest.fixture()
-def fake_sms() -> FakeSms:
-    """Provide a recording SMS gateway double.
-
-    Returns:
-        A fresh double per test.
-    """
-    return FakeSms()
 
 
 @pytest.fixture()

@@ -24,6 +24,7 @@ class OrderStatus(str, Enum):
     PAYMENT_DETECTED = "PAYMENT_DETECTED"
     VERIFYING_CACHICAMO = "VERIFYING_CACHICAMO"
     SENDING_PAYMENT = "SENDING_PAYMENT"
+    PAYMENT_CONFIRMED = "PAYMENT_CONFIRMED"
     AWAITING_RELEASE = "AWAITING_RELEASE"
     APPEALED = "APPEALED"
     COMPLETED = "COMPLETED"
@@ -67,8 +68,9 @@ ALLOWED_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
         }
     ),
     OrderStatus.SENDING_PAYMENT: frozenset(
-        {OrderStatus.AWAITING_RELEASE, OrderStatus.MANUAL_REVIEW, OrderStatus.FAILED}
+        {OrderStatus.PAYMENT_CONFIRMED, OrderStatus.MANUAL_REVIEW, OrderStatus.FAILED}
     ),
+    OrderStatus.PAYMENT_CONFIRMED: frozenset({OrderStatus.AWAITING_RELEASE, OrderStatus.MANUAL_REVIEW}),
     OrderStatus.AWAITING_RELEASE: frozenset(
         {
             OrderStatus.COMPLETED,
@@ -223,13 +225,6 @@ class PaymentVerificationStatus(str, Enum):
     REJECTED = "REJECTED"
 
 
-class SmsDirection(str, Enum):
-    """Direction of an SMS handled by the Android gateway."""
-
-    INBOUND = "INBOUND"
-    OUTBOUND = "OUTBOUND"
-
-
 class AuditActor(str, Enum):
     """Who or what produced an audit entry."""
 
@@ -253,6 +248,7 @@ class AuditEvent(str, Enum):
     APPEAL_FILED = "APPEAL_FILED"
     APPEAL_SKIPPED = "APPEAL_SKIPPED"
     TELEGRAM_CHALLENGE_REJECTED = "TELEGRAM_CHALLENGE_REJECTED"
+    # Retained so historical audit rows remain readable.
     SMS_SENT = "SMS_SENT"
     SMS_RECEIVED = "SMS_RECEIVED"
     RISK_BLOCKED = "RISK_BLOCKED"
@@ -269,7 +265,6 @@ __all__ = [
     "BankCode",
     "BankTransactionDirection",
     "PaymentVerificationStatus",
-    "SmsDirection",
     "AuditActor",
     "AuditEvent",
 ]

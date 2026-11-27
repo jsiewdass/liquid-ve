@@ -7,6 +7,7 @@ import os
 from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from typing import Any, AsyncIterator
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
@@ -26,7 +27,7 @@ from app.domain.enums import OrderType
 from app.infrastructure.clients.binance_browser import PlaywrightBinanceBrowser
 from app.infrastructure.clients.binance_client import BinanceC2CClient
 from app.infrastructure.clients.cachicamo_client import CachicamoClient
-from app.infrastructure.clients.sms_gateway import SmsGatewayClient
+from app.infrastructure.clients.telegram_bot import TelegramBot
 from app.infrastructure.database import (
     create_all,
     dispose_engine,
@@ -34,49 +35,11 @@ from app.infrastructure.database import (
     session_scope,
 )
 from app.infrastructure.models import P2POrder
-from app.services.buy_flow import BuyFlow
-
-_PENDING_PAYMENT_STATUS = "PENDING_PAYMENT"
-
-
-async def _run_sms_poller(app: FastAPI) -> None:
-    """Poll the Android gateway inbox until cancelled.
-
-    Every failure is logged and the loop continues; only cancellation stops
-    it.  Nothing is left running after shutdown because the lifespan task is
-    awaited.
-
-    Args:
-        app: Application holding settings and clients on ``state``.
-    """
-    app_settings: Settings = app.state.settings
-    while True:
-        await asyncio.sleep(app_settings.sms_gateway_poll_interval_seconds)
-        try:
-            sms_client = getattr(app.state, "sms", None)
-            if sms_client is None:
-                continue
-            async with session_scope() as session:
-                flow = BuyFlow(
-                    session,
-                    settings=app_settings,
-                    binance=getattr(app.state, "binance", None),
-                    cachicamo=getattr(app.state, "cachicamo", None),
-                    sms=sms_client,
-                    browser=getattr(app.state, "browser", None),
-                )
-                messages = await sms_client.fetch_inbox()
-                for message in messages:
-                    await flow.handle_incoming_sms(message)
-        except asyncio.CancelledError:
-            logger.info("SMS poller stopped")
-            raise
-        except Exception as exc:  # noqa: BLE001 - the loop must survive
-            logger.warning("SMS poller iteration failed: {}", type(exc).__name__)
-
+from app.services.banesco_payment import BanescoPayments
+from app.services.buy_flow import PENDING_PAYMENT, BuyFlow
 
 async def _buy_worker_tick(app: FastAPI) -> None:
-    """Run one BUY detection and timeout-sweep pass.
+    """Run one read-only Binance BUY detection pass.
 
     The tick performs exactly one filtered history read, ignores anything that
     is not a ``BUY`` in ``PENDING_PAYMENT``, skips orders whose number is
@@ -86,27 +49,19 @@ async def _buy_worker_tick(app: FastAPI) -> None:
     Args:
         app: Application holding settings and clients on ``state``.
     """
-    app_settings: Settings = app.state.settings
     binance = getattr(app.state, "binance", None)
     if binance is None:
         return
     history = await binance.get_order_history(
         trade_type=OrderType.BUY,
-        order_status=_PENDING_PAYMENT_STATUS,
+        order_status=PENDING_PAYMENT,
     )
     async with session_scope() as session:
-        flow = BuyFlow(
-            session,
-            settings=app_settings,
-            binance=binance,
-            cachicamo=getattr(app.state, "cachicamo", None),
-            sms=getattr(app.state, "sms", None),
-            browser=getattr(app.state, "browser", None),
-        )
+        flow = BuyFlow(session, binance=binance)
         for candidate in history:
             if candidate.trade_type is not OrderType.BUY:
                 continue
-            if candidate.status != _PENDING_PAYMENT_STATUS:
+            if candidate.status != PENDING_PAYMENT:
                 continue
             known = await session.execute(
                 select(P2POrder.id).where(
@@ -125,7 +80,6 @@ async def _buy_worker_tick(app: FastAPI) -> None:
                     candidate.order_number,
                     type(exc).__name__,
                 )
-        await flow.sweep_timeouts()
 
 
 async def _run_buy_worker(app: FastAPI) -> None:
@@ -163,7 +117,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Starting {} in {} mode", app_settings.app_name, app_settings.app_env)
     init_engine(app_settings)
     stack = AsyncExitStack()
-    poller_task: asyncio.Task[None] | None = None
+    payments: BanescoPayments | None = None
     worker_task: asyncio.Task[None] | None = None
     browser: PlaywrightBinanceBrowser | None = None
     try:
@@ -175,21 +129,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.cachicamo = await stack.enter_async_context(
             CachicamoClient(app_settings)
         )
-        app.state.sms = await stack.enter_async_context(SmsGatewayClient(app_settings))
         if app_settings.binance_browser_enabled:
             browser = PlaywrightBinanceBrowser(app_settings)
         app.state.browser = browser
-        if app_settings.sms_poller_enabled:
-            poller_task = asyncio.create_task(_run_sms_poller(app), name="sms-poller")
+        if app_settings.banesco_rail_enabled:
+            telegram_http = await stack.enter_async_context(httpx.AsyncClient(
+                timeout=app_settings.http_timeout_seconds, trust_env=False,
+            ))
+            payments = BanescoPayments(app_settings, TelegramBot(app_settings, telegram_http))
+            await payments.reconcile_startup()
+        app.state.banesco_payments = payments
         if app_settings.buy_worker_enabled:
             worker_task = asyncio.create_task(_run_buy_worker(app), name="buy-worker")
         yield
     finally:
-        for task in (poller_task, worker_task):
-            if task is not None:
-                task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await task
+        if worker_task is not None:
+            worker_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await worker_task
+        if payments is not None:
+            await payments.aclose()
         if browser is not None:
             await browser.aclose()
         await stack.aclose()

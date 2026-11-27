@@ -210,28 +210,9 @@ def hash_payload(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def _bearer_token(authorization: str | None) -> str:
-    """Extract the token from an ``Authorization`` header value.
-
-    Args:
-        authorization: Raw header value.
-
-    Returns:
-        The bearer token.
-
-    Raises:
-        UnauthorizedError: If the header is missing or malformed.
-    """
-    if not authorization:
-        raise UnauthorizedError("Missing authorization header")
-    scheme, _, token = authorization.partition(" ")
-    if scheme.lower() != "bearer" or not token.strip():
-        raise UnauthorizedError("Invalid authorization scheme")
-    return token.strip()
-
-
 async def require_internal_api_key(
     x_api_key: Annotated[str | None, Header(alias="X-API-Key")] = None,
+    *, app_settings: Settings | None = None,
 ) -> None:
     """Validate the internal API key header.
 
@@ -243,26 +224,9 @@ async def require_internal_api_key(
     """
     if not x_api_key:
         raise UnauthorizedError("Missing API key")
-    expected = get_settings().internal_api_key.get_secret_value()
-    if not hmac.compare_digest(x_api_key, expected):
+    expected = (app_settings or get_settings()).internal_api_key.get_secret_value()
+    if not hmac.compare_digest(x_api_key.encode(), expected.encode()):
         raise UnauthorizedError("Invalid API key")
-
-
-async def require_bearer_token(
-    authorization: Annotated[str | None, Header()] = None,
-) -> None:
-    """Validate a bearer token against the configured internal key.
-
-    Args:
-        authorization: Header value injected by FastAPI.
-
-    Raises:
-        UnauthorizedError: If the token is missing or does not match.
-    """
-    token = _bearer_token(authorization)
-    expected = get_settings().internal_api_key.get_secret_value()
-    if not hmac.compare_digest(token, expected):
-        raise UnauthorizedError("Invalid bearer token")
 
 
 __all__ = [
@@ -274,5 +238,4 @@ __all__ = [
     "mask_id_number",
     "hash_payload",
     "require_internal_api_key",
-    "require_bearer_token",
 ]

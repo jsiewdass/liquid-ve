@@ -13,6 +13,21 @@
 
 ---
 
+## Piloto supervisado del 27 de noviembre de 2026
+
+- El endpoint del operador inicia una sola compra. El worker solo registra órdenes.
+- Telegram envía el aviso a un chat privado. La clave se ingresa en un formulario
+  HTTPS de liquidVE con un enlace de un solo uso. El plazo máximo es de 30
+  segundos desde la primera apertura del formulario HTTPS. El enlace tiene un plazo
+  independiente de cinco minutos por defecto para abrirlo. Banesco controla la
+  vigencia del código y de su sesión. Esto actualiza el diseño de la sección 8.
+- La evidencia de Banesco deja la orden en `PAYMENT_CONFIRMED`. El paso a
+  `AWAITING_RELEASE` se reserva para la futura notificación con imagen en Binance.
+  El formato del comprobante sigue pendiente de validación en una operación real
+  supervisada.
+- Se retiró la pasarela Android y su procesamiento de mensajes. Las migraciones
+  y los registros de auditoría históricos se conservan para bases existentes.
+
 ## 1. Technical Approach
 
 Mirror the proven `BinanceBrowser` split — a pure domain layer, thin page objects over a `PageLike` protocol, and a driver that lazily imports Playwright — so the default test run never imports Playwright, launches Chromium, opens a network socket, or needs a credential.

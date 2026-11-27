@@ -81,4 +81,5 @@ desktop.ini
 # --- local notes / stale planning documents ------------------------------------
 # Local-only spec snapshot; keep it out of the published repository.
 PROJECT_SPEC.md
+/PROJECT_SPEC (2).md
 .atl/*

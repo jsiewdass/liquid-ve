@@ -22,16 +22,18 @@ import time
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import httpx
 from pydantic import BaseModel
 
-from app.core.config import Settings
 from app.core.exceptions import ExternalServiceError, ExternalServiceResponseError
 from app.domain.enums import OrderType
 from app.infrastructure.clients.base import BaseAsyncHTTPClient
+
+if TYPE_CHECKING:
+    from app.core.config import Settings
 
 # TODO(integration): confirm these paths against the official C2C API docs
 # before enabling real money movement in production.

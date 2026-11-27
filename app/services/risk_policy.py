@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.exceptions import RiskLimitExceededError
-from app.domain.banks import resolve_bank
+from app.domain.banesco import BANESCO_DESTINATION_BANK_OPTIONS
 from app.domain.schemas import RiskAssessment
 from app.infrastructure.models import DailyVolumeLedger
 
@@ -301,7 +301,7 @@ class RiskPolicy:
         """Evaluate the ordered BUY circuit breakers.
 
         The breakers run in the specification order and stop on the first
-        failure: per-order cap, daily SMS cap, implied-rate tolerance, then
+        failure: per-order cap, daily payment cap, implied-rate tolerance, then
         destination-bank support.  The evaluation is read-only: no channel is
         reserved here, so the caller can still park (gate off, incomplete
         extraction) without leaving budget charged.  A dispatched order
@@ -363,7 +363,7 @@ class RiskPolicy:
                 "rate_out_of_tolerance", projection.projected_daily_volume_ves
             )
 
-        if bank_value is None or resolve_bank(bank_value) is None:
+        if bank_value is None or bank_value not in BANESCO_DESTINATION_BANK_OPTIONS:
             return _blocked(
                 "unsupported_destination_bank", projection.projected_daily_volume_ves
             )

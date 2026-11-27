@@ -37,6 +37,7 @@ from app.core.exceptions import (
     BanescoAdModalBlocked,
     BanescoCaptchaDetected,
     BanescoLayoutUnexpected,
+    BanescoPaymentOutcomeUnknown,
     BanescoLoginFailed,
     BanescoMaintenance,
     BanescoSessionExpired,
@@ -56,6 +57,9 @@ from app.domain.banesco import (
     format_ves_amount,
     match_destination_bank_option,
     resolve_question_keys,
+    project_banesco_document,
+    project_phone,
+    validate_clave_dinamica,
 )
 
 __all__ = [
@@ -1925,6 +1929,16 @@ class ConfirmationPage(BasePage):
         await self._await_screen(self.screen)
         self._observed = True
 
+    async def verify_target(self, target: BanescoPaymentTarget) -> None:
+        summary = parse_confirmation_summary(await self._page.content())
+        if (
+            project_phone(summary.beneficiary_phone) != (target.phone_prefix, target.phone_rest)
+            or project_banesco_document(summary.beneficiary_document) != (target.id_type, target.id_digits)
+            or _normalize_label(summary.destination_bank) != _normalize_label(target.destination_bank_option)
+            or summary.amount_ves != target.amount_ves
+        ):
+            raise BanescoLayoutUnexpected("Confirmation details differ from the payment target")
+
     async def submit_second(self) -> None:
         """Perform the second ``Pagar`` only after an observed confirmation.
 
@@ -1949,22 +1963,14 @@ class ConfirmationPage(BasePage):
 
 
 class ClaveDinamicaPage(BasePage):
-    """The Clave Dinámica screen, detected only (no fill and no submit)."""
+    """The Clave Dinámica form in the live payment session."""
 
     screen = Screen.CLAVE_DINAMICA
     stage = "clave"
     selectors = CLAVE_DINAMICA_SELECTORS
 
     async def assert_present(self) -> None:
-        """Detect the clave form by its ``#otp`` control and pinned length.
-
-        This page object deliberately exposes no way to fill ``#otp`` or click
-        ``#acceptar``; the operator key handoff is out of this slice.
-
-        Raises:
-            BanescoLayoutUnexpected: If the OTP control is missing or does not
-                pin ``maxlength="8"``.
-        """
+        """Check that the code input matches the recorded form."""
         await self._expect(self.selectors["otp"])
         markup = await self._page.content()
         if not _input_tag_has_maxlength(
@@ -1974,3 +1980,41 @@ class ClaveDinamicaPage(BasePage):
                 "Clave Dinamica form does not match the reviewed shape",
                 details={"stage": self.stage},
             )
+
+
+    async def authorize(self, code: str, deadline: float) -> None:
+        await self.assert_present()
+        await self._expect(self.selectors["submit"])
+        await self._page.fill(self.selectors["otp"], validate_clave_dinamica(code))
+        if time.monotonic() >= deadline:
+            raise asyncio.TimeoutError
+        await self._page.click(self.selectors["submit"])
+
+
+RECEIPT_HEADING = "Comprobante de Pago Móvil"
+
+
+def parse_receipt(markup: str) -> tuple[str, Decimal]:
+    """Require an explicit receipt heading and unique reference and amount fields."""
+    parser = _ParagraphTextParser()
+    parser.feed(_strip_comments(markup))
+    parser.close()
+    paragraphs = parser.paragraphs
+    normalized = [_normalize_label(value) for value in paragraphs]
+
+    if _normalize_label(RECEIPT_HEADING) not in normalized or _has_id(markup, "otp"):
+        raise BanescoPaymentOutcomeUnknown()
+
+    def read(label: str) -> str:
+        positions = [idx + 1 for idx, value in enumerate(normalized) if value == label]
+        if len(positions) != 1 or positions[0] >= len(paragraphs):
+            raise BanescoPaymentOutcomeUnknown()
+        return paragraphs[positions[0]]
+
+    reference = read("referencia")
+    amount = read("monto")
+    if not re.fullmatch(r"[0-9]{6,32}", reference):
+        raise BanescoPaymentOutcomeUnknown()
+    if not re.fullmatch(r"(?:[0-9]+|[0-9]{1,3}(?:\.[0-9]{3})+),[0-9]{2}", amount):
+        raise BanescoPaymentOutcomeUnknown()
+    return reference, _parse_ves_amount(amount)

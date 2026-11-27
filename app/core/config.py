@@ -70,14 +70,6 @@ class Settings(BaseSettings):
     cachicamo_timestamp_header: str = "X-Cachicamo-Timestamp"
     cachicamo_event_id_header: str = "X-Cachicamo-Event-Id"
 
-    # --- Android SMS gateway (Tailscale) ---------------------------------
-    sms_gateway_base_url: str
-    sms_gateway_token: SecretStr
-    sms_gateway_timeout_seconds: float = 10.0
-    sms_gateway_poll_interval_seconds: int = 15
-    sms_poller_enabled: bool = False
-    sms_gateway_shared_secret: SecretStr | None = None
-
     # --- outbound HTTP policy -------------------------------------------
     http_timeout_seconds: float = 15.0
     http_connect_timeout_seconds: float = 5.0
@@ -92,17 +84,10 @@ class Settings(BaseSettings):
     max_usdt_per_order: Decimal
     manual_review_on_limit: bool = True
 
-    # --- buy flow (SMS payout) -------------------------------------------
-    buy_auto_pay_enabled: bool = False
+    # --- buy flow -------------------------------------------
     max_buy_amount_ves: Decimal
     daily_pay_limit_ves: Decimal
-    # Deprecated one-release aliases; both resolve onto the canonical field.
-    daily_sms_limit_ves: Decimal | None = None
     rate_tolerance_pct: Decimal = Decimal("1.0")
-    payment_confirmation_timeout_seconds: int = 300
-    sms_confirmation_timeout_seconds: int | None = None
-    bank_short_codes_bdv: Annotated[list[str], NoDecode] = []
-    bank_short_codes_banesco: Annotated[list[str], NoDecode] = []
 
     # --- Binance P2P browser (buy flow) ----------------------------------
     binance_browser_enabled: bool = False
@@ -141,10 +126,9 @@ class Settings(BaseSettings):
     telegram_bot_token: SecretStr | None = None
     telegram_operator_chat_id: int | None = None
     telegram_api_base_url: str = "https://api.telegram.org"
-    telegram_clave_timeout_seconds: int = 300
-    telegram_id_type_timeout_seconds: int = 300
-    telegram_poll_timeout_seconds: int = 30
-    telegram_max_clarifications: int = 2
+    telegram_clave_timeout_seconds: int = 30
+    operator_link_timeout_seconds: int = 300
+    operator_public_url: str = ""
 
     # --- receipt evidence ------------------------------------------------
     receipt_storage_dir: str = "./data/receipts"
@@ -172,8 +156,6 @@ class Settings(BaseSettings):
         "cors_origins",
         "allowed_hosts",
         "trusted_proxies",
-        "bank_short_codes_bdv",
-        "bank_short_codes_banesco",
         mode="before",
     )
     @classmethod
@@ -211,7 +193,6 @@ class Settings(BaseSettings):
         "max_usdt_per_order",
         "max_buy_amount_ves",
         "daily_pay_limit_ves",
-        "daily_sms_limit_ves",
     )
     @classmethod
     def _validate_money_amounts(
@@ -264,33 +245,6 @@ class Settings(BaseSettings):
             raise ValueError("rate_tolerance_pct must be greater than 0 and at most 100")
         return tolerance.quantize(_VES_QUANT, rounding=ROUND_HALF_UP)
 
-    @model_validator(mode="before")
-    @classmethod
-    def _apply_deprecated_aliases(cls, data: Any) -> Any:
-        """Resolve one-release deprecated setting names onto canonical fields.
-
-        Args:
-            data: Raw settings data assembled from the environment and init.
-
-        Returns:
-            The data with deprecated names folded into their canonical field.
-        """
-        if not isinstance(data, dict):
-            return data
-        if (
-            data.get("daily_pay_limit_ves") is None
-            and data.get("daily_sms_limit_ves") is not None
-        ):
-            data["daily_pay_limit_ves"] = data["daily_sms_limit_ves"]
-        if (
-            data.get("payment_confirmation_timeout_seconds") is None
-            and data.get("sms_confirmation_timeout_seconds") is not None
-        ):
-            data["payment_confirmation_timeout_seconds"] = data[
-                "sms_confirmation_timeout_seconds"
-            ]
-        return data
-
     @model_validator(mode="after")
     def _validate_consistency(self) -> "Settings":
         """Validate cross-field and environment-dependent invariants.
@@ -303,9 +257,6 @@ class Settings(BaseSettings):
                 enabled features miss a required setting, or production
                 secrets are too short.
         """
-        # The deprecated aliases always mirror the resolved canonical value.
-        self.daily_sms_limit_ves = self.daily_pay_limit_ves
-        self.sms_confirmation_timeout_seconds = self.payment_confirmation_timeout_seconds
 
         if self.daily_limit_ves < self.max_tx_amount_ves:
             raise ValueError("daily_limit_ves must be greater than or equal to max_tx_amount_ves")
@@ -315,7 +266,7 @@ class Settings(BaseSettings):
             raise ValueError(
                 "daily_pay_limit_ves must be greater than or equal to max_buy_amount_ves"
             )
-        for field_name in ("binance_c2c_base_url", "cachicamo_base_url", "sms_gateway_base_url"):
+        for field_name in ("binance_c2c_base_url", "cachicamo_base_url"):
             _ensure_secure_base_url(field_name, getattr(self, field_name))
         if self.banesco_default_id_type not in {"", "V", "E", "J", "G", "R"}:
             raise ValueError("banesco_default_id_type must be empty or one of V, E, J, G, R")
@@ -334,8 +285,10 @@ class Settings(BaseSettings):
             _ensure_https_url("banesco_online_login_url", self.banesco_online_login_url)
             if self.banesco_browser_timeout_ms <= 0:
                 raise ValueError("banesco_browser_timeout_ms must be greater than zero")
-            if self.banesco_max_concurrent_payments < 1:
-                raise ValueError("banesco_max_concurrent_payments must be at least one")
+            if self.banesco_max_concurrent_payments != 1:
+                raise ValueError("banesco_max_concurrent_payments must be one")
+            if self.banesco_clave_retry_limit != 0:
+                raise ValueError("banesco_clave_retry_limit must be zero")
             if not self.telegram_enabled:
                 raise ValueError("telegram_enabled must be true when banesco_rail_enabled is true")
             if not self.binance_browser_enabled:
@@ -346,10 +299,16 @@ class Settings(BaseSettings):
             _require_secret("telegram_bot_token", self.telegram_bot_token)
             if self.telegram_operator_chat_id is None or self.telegram_operator_chat_id <= 0:
                 raise ValueError("telegram_operator_chat_id must be a positive integer")
-            if self.telegram_clave_timeout_seconds <= 0:
-                raise ValueError("telegram_clave_timeout_seconds must be greater than zero")
-            if self.telegram_poll_timeout_seconds <= 0:
-                raise ValueError("telegram_poll_timeout_seconds must be greater than zero")
+            _ensure_https_url("telegram_api_base_url", self.telegram_api_base_url)
+        if not 1 <= self.telegram_clave_timeout_seconds <= 30:
+            raise ValueError("telegram_clave_timeout_seconds must be between 1 and 30")
+        if self.operator_link_timeout_seconds <= 0:
+            raise ValueError("operator_link_timeout_seconds must be greater than zero")
+        if self.banesco_rail_enabled:
+            _ensure_https_url("operator_public_url", self.operator_public_url)
+            origin = urlparse(self.operator_public_url)
+            if origin.path not in {"", "/"} or origin.query or origin.fragment or origin.username is not None:
+                raise ValueError("operator_public_url must be an HTTPS origin")
         if self.release_watcher_enabled:
             if self.release_poll_interval_seconds <= 0:
                 raise ValueError("release_poll_interval_seconds must be greater than zero")
@@ -408,17 +367,14 @@ class Settings(BaseSettings):
             "database_url": safe_url,
             "log_level": self.log_level,
             "log_json": self.log_json,
-            "sms_poller_enabled": self.sms_poller_enabled,
             "cors_origins": list(self.cors_origins),
             "allowed_hosts": list(self.allowed_hosts),
             "max_tx_amount_ves": str(self.max_tx_amount_ves),
             "min_tx_amount_ves": str(self.min_tx_amount_ves),
             "daily_limit_ves": str(self.daily_limit_ves),
             "max_usdt_per_order": str(self.max_usdt_per_order),
-            "buy_auto_pay_enabled": self.buy_auto_pay_enabled,
             "max_buy_amount_ves": str(self.max_buy_amount_ves),
             "daily_pay_limit_ves": str(self.daily_pay_limit_ves),
-            "daily_sms_limit_ves": str(self.daily_sms_limit_ves),
             "rate_tolerance_pct": str(self.rate_tolerance_pct),
             "binance_browser_enabled": self.binance_browser_enabled,
             "binance_browser_headless": self.binance_browser_headless,

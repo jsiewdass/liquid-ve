@@ -21,7 +21,6 @@ from app.domain.enums import OrderStatus, OrderType
 from app.domain.schemas import RiskAssessment
 from app.infrastructure.clients.binance_client import BinanceC2COrder
 from app.infrastructure.models import DailyVolumeLedger
-from app.services.buy_flow import BuyFlow
 from app.services.risk_policy import CHANNELS, LEDGER_VES, LEDGER_VES_PAY, RiskPolicy
 from app.services.sell_flow import SellFlow
 
@@ -127,7 +126,6 @@ def _sell_flow(
         settings=settings,
         binance=_FakeBinance(orders),
         cachicamo=_NoopClient(),
-        sms=_NoopClient(),
     )
 
 
@@ -374,71 +372,6 @@ async def test_sell_flow_delegates_to_risk_policy(
     assert order.manual_review_reason == "delegated"
 
 
-def _buy_flow(
-    session: AsyncSession,
-    settings: Settings,
-    orders: dict[str, BinanceC2COrder],
-) -> BuyFlow:
-    """Build a BuyFlow wired to fakes.
-
-    Args:
-        session: Active session.
-        settings: Test settings.
-        orders: Canned Binance orders.
-
-    Returns:
-        The flow under test.
-    """
-    return BuyFlow(
-        session,
-        settings=settings,
-        binance=_FakeBinance(orders),
-        cachicamo=_NoopClient(),
-        sms=_NoopClient(),
-    )
-
-
-async def test_buy_flow_delegates_to_risk_policy(
-    session: AsyncSession,
-    test_settings: Settings,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """BuyFlow.execute must delegate the check-only shared projection."""
-    calls: list[tuple[Decimal, Decimal]] = []
-
-    async def _fake_check(
-        self: RiskPolicy, *, amount_ves: Decimal, amount_asset: Decimal
-    ) -> RiskAssessment:
-        calls.append((amount_ves, amount_asset))
-        return RiskAssessment(
-            allowed=False,
-            requires_manual_review=True,
-            reason="delegated",
-            projected_daily_volume_ves=amount_ves,
-            limits={},
-        )
-
-    monkeypatch.setattr(RiskPolicy, "check_shared", _fake_check)
-    flow = _buy_flow(
-        session,
-        test_settings,
-        {
-            "BUY-DELEGATE": _detail(
-                "BUY-DELEGATE",
-                total_price="1500.00",
-                trade_type=OrderType.BUY,
-                status="PENDING_PAYMENT",
-            )
-        },
-    )
-
-    order = await flow.execute("BUY-DELEGATE")
-
-    assert calls == [(Decimal("1500.00"), Decimal("10.00000000"))]
-    assert order.status is OrderStatus.MANUAL_REVIEW
-    assert order.manual_review_reason == "delegated"
-
-
 _BREAKER_CASES = [
     pytest.param(
         "6000.00", "40.00000000", "150.00000000", "0102", None, "amount_over_cap",
@@ -451,7 +384,7 @@ _BREAKER_CASES = [
     pytest.param(
         "2000.00", "10.00000000", "200.00000000", "0102", "19000.00",
         "daily_pay_cap_exceeded",
-        id="daily-sms-cap",
+        id="daily-pay-cap",
     ),
     pytest.param(
         "1500.00", "10.00000000", "160.00000000", "0102", None,
@@ -459,7 +392,7 @@ _BREAKER_CASES = [
         id="rate-out-of-tolerance",
     ),
     pytest.param(
-        "1500.00", "10.00000000", "150.00000000", "0105", None,
+        "1500.00", "10.00000000", "150.00000000", "9999", None,
         "unsupported_destination_bank",
         id="unsupported-bank-code",
     ),

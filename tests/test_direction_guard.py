@@ -240,7 +240,6 @@ async def test_sell_flow_refuses_buy_order_before_bank_transaction(
         settings=test_settings,
         binance=fake_binance,  # type: ignore[arg-type]
         cachicamo=fake_cachicamo,  # type: ignore[arg-type]
-        sms=object(),
     )
 
     with pytest.raises(InvalidStateTransitionError):
@@ -272,7 +271,6 @@ async def test_sell_flow_execute_refuses_buy_detail(
         settings=test_settings,
         binance=fake_binance,  # type: ignore[arg-type]
         cachicamo=fake_cachicamo,  # type: ignore[arg-type]
-        sms=object(),
     )
 
     with pytest.raises(InvalidStateTransitionError):
@@ -294,13 +292,7 @@ async def test_buy_flow_refuses_sell_order(
 ) -> None:
     """BuyFlow.execute rejects a SELL detail before persisting anything."""
     fake_binance.register(_detail("ORD-SELL-EXEC", OrderType.SELL))  # type: ignore[attr-defined]
-    flow = BuyFlow(
-        session,
-        settings=test_settings,
-        binance=fake_binance,  # type: ignore[arg-type]
-        cachicamo=fake_cachicamo,  # type: ignore[arg-type]
-        sms=object(),
-    )
+    flow = BuyFlow(session, binance=fake_binance)  # type: ignore[arg-type]
 
     with pytest.raises(InvalidStateTransitionError):
         await flow.execute("ORD-SELL-EXEC")

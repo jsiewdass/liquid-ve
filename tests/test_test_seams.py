@@ -1,4 +1,4 @@
-﻿"""One-engine ASGI and provider-double test seams.
+"""One-engine ASGI and provider-double test seams.
 
 These tests pin the contract of the shared fixtures used by the webhook and
 direction-guard suites: the ASGI client must read and write the *same*
@@ -198,20 +198,6 @@ async def test_fake_browser_scripts_errors(fake_browser: object) -> None:
     assert fake_browser.events == [  # type: ignore[attr-defined]
         ("extract", 1),
         ("notify", 1, "REF-0001"),
-    ]
-
-
-async def test_fake_sms_records_idempotency_key(fake_sms: object) -> None:
-    """The SMS double records the destination short code and the wire key."""
-    result = await fake_sms.send_sms(  # type: ignore[attr-defined]
-        phone_number="2661",
-        message="Pagar 0102 04141234567 12345678 1500,00",
-        idempotency_key="ORD-SEAM:payout",
-    )
-
-    assert result.message_id == "msg-1"
-    assert fake_sms.calls == [  # type: ignore[attr-defined]
-        ("2661", "Pagar 0102 04141234567 12345678 1500,00", "ORD-SEAM:payout")
     ]
 
 

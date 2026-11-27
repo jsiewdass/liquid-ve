@@ -9,15 +9,17 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from pydantic import BaseModel, Field
 
-from app.core.config import Settings
 from app.core.exceptions import ExternalServiceResponseError
 from app.domain.enums import BankCode, PaymentVerificationStatus
 from app.infrastructure.clients.base import BaseAsyncHTTPClient
+
+if TYPE_CHECKING:
+    from app.core.config import Settings
 
 # TODO(integration): confirm paths against the Cachicamo Cash API contract.
 _VERIFY_PATH = "/v1/payments/verify"

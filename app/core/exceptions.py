@@ -194,28 +194,28 @@ class RiskLimitExceededError(LiquidVEException):
         super().__init__(message, code=code, details=details, http_status=http_status)
 
 
-class BankSmsFormatError(LiquidVEException):
-    """Raised when bank SMS input cannot be normalized or rendered."""
+class BankFieldFormatError(LiquidVEException):
+    """Raised when a bank payment field cannot be normalized or formatted."""
 
     def __init__(
         self,
-        message: str = "Bank SMS value is invalid",
+        message: str = "Bank payment field is invalid",
         *,
-        code: str = "bank_sms_format_error",
+        code: str = "bank_field_format_error",
         details: dict[str, Any] | None = None,
         http_status: int = 422,
     ) -> None:
         super().__init__(message, code=code, details=details, http_status=http_status)
 
 
-class BankSmsParseError(LiquidVEException):
+class BankAmountParseError(LiquidVEException):
     """Raised when a bank reply or scraped amount cannot be parsed."""
 
     def __init__(
         self,
-        message: str = "Bank SMS value could not be parsed",
+        message: str = "Bank payment amount could not be parsed",
         *,
-        code: str = "bank_sms_parse_error",
+        code: str = "bank_amount_parse_error",
         details: dict[str, Any] | None = None,
         http_status: int = 422,
     ) -> None:
@@ -933,8 +933,8 @@ __all__ = [
     "DuplicateBankReferenceError",
     "InvalidStateTransitionError",
     "RiskLimitExceededError",
-    "BankSmsFormatError",
-    "BankSmsParseError",
+    "BankFieldFormatError",
+    "BankAmountParseError",
     "PaymentRailError",
     "BanescoLayoutUnexpected",
     "UnsupportedPhonePrefix",

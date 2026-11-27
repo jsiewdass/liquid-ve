@@ -8,12 +8,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from loguru import logger
 
-from app.core.config import Settings
 from app.core.exceptions import (
     ConflictError,
     ExternalServiceRateLimitedError,
@@ -22,6 +21,9 @@ from app.core.exceptions import (
     RetryableExternalServiceError,
     UnauthorizedError,
 )
+
+if TYPE_CHECKING:
+    from app.core.config import Settings
 
 
 class BaseAsyncHTTPClient(ABC):

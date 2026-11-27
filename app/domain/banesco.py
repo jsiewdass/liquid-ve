@@ -28,7 +28,7 @@ from app.core.exceptions import (
     UnsupportedDestinationBank,
     UnsupportedPhonePrefix,
 )
-from app.domain.banks import BankSmsFormatError, format_ves_amount, national_digits
+from app.domain.banks import BankFieldFormatError, format_ves_amount, national_digits
 
 __all__ = [
     "QuestionKey",
@@ -253,7 +253,7 @@ def project_phone(phone: str) -> tuple[str, str]:
     """
     try:
         national = national_digits(phone)
-    except BankSmsFormatError as exc:
+    except BankFieldFormatError as exc:
         raise PaymentDataUnavailable(
             "Beneficiary phone is not a valid Venezuelan mobile number"
         ) from exc

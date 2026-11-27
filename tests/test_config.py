@@ -45,11 +45,7 @@ def _clear_rail_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_buy_settings_defaults(test_settings: Settings) -> None:
     """The operator gate and the non-required scalars default safely."""
-    assert test_settings.buy_auto_pay_enabled is False
     assert test_settings.rate_tolerance_pct == Decimal("1.00")
-    assert test_settings.sms_confirmation_timeout_seconds == 300
-    assert test_settings.bank_short_codes_bdv == []
-    assert test_settings.bank_short_codes_banesco == []
 
 
 def test_max_buy_cap_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -60,12 +56,11 @@ def test_max_buy_cap_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
         Settings(_env_file=None)
 
 
-def test_daily_pay_cap_is_required_when_both_names_are_absent(
+def test_daily_pay_cap_is_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The daily cap is still required once the deprecated alias is gone."""
+    """The daily cap is required."""
     monkeypatch.delenv("DAILY_PAY_LIMIT_VES", raising=False)
-    monkeypatch.delenv("DAILY_SMS_LIMIT_VES", raising=False)
 
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
@@ -86,7 +81,6 @@ def test_daily_pay_limit_must_cover_max_buy() -> None:
         daily_pay_limit_ves=Decimal("5000.00"),
     )
     assert equal.daily_pay_limit_ves == equal.max_buy_amount_ves
-    assert equal.daily_sms_limit_ves == equal.max_buy_amount_ves
 
 
 def test_buy_caps_reject_float_and_zero() -> None:
@@ -116,19 +110,6 @@ def test_rate_tolerance_validator_bounds_and_quantizes() -> None:
     assert up.rate_tolerance_pct == Decimal("1.01")
 
 
-def test_short_code_overrides_parse_from_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Comma-separated override lists are parsed per bank."""
-    monkeypatch.setenv("BANK_SHORT_CODES_BDV", "2661,2662")
-    monkeypatch.setenv("BANK_SHORT_CODES_BANESCO", "2846, 2847")
-
-    built = Settings(_env_file=None)
-
-    assert built.bank_short_codes_bdv == ["2661", "2662"]
-    assert built.bank_short_codes_banesco == ["2846", "2847"]
-
-
 def test_settings_builds_from_conftest_env_alone() -> None:
     """The required caps are satisfied by the shared conftest environment."""
     get_settings.cache_clear()
@@ -136,7 +117,6 @@ def test_settings_builds_from_conftest_env_alone() -> None:
         built = Settings()
         assert built.max_buy_amount_ves == Decimal("5000.00")
         assert built.daily_pay_limit_ves == Decimal("20000.00")
-        assert built.daily_sms_limit_ves == Decimal("20000.00")
         assert built.rate_tolerance_pct == Decimal("1.00")
     finally:
         get_settings.cache_clear()
@@ -146,9 +126,8 @@ def test_summary_exposes_buy_scalars(test_settings: Settings) -> None:
     """The log-safe summary includes the four non-secret buy scalars."""
     summary = test_settings.base_settings_summary()
 
-    assert summary["buy_auto_pay_enabled"] is False
+    assert summary["daily_pay_limit_ves"] == "20000.00"
     assert summary["max_buy_amount_ves"] == "5000.00"
-    assert summary["daily_sms_limit_ves"] == "20000.00"
     assert summary["rate_tolerance_pct"] == "1.00"
 
 
@@ -213,7 +192,6 @@ def test_worker_settings_default_off(test_settings: Settings) -> None:
 
 def test_feature_switches_default_off(test_settings: Settings) -> None:
     """The whole BUY path is unreachable behind three default-off switches."""
-    assert test_settings.buy_auto_pay_enabled is False
     assert test_settings.buy_worker_enabled is False
     assert test_settings.binance_browser_enabled is False
 
@@ -257,10 +235,7 @@ def test_new_rail_settings_are_defaulted_and_summary_is_secret_free(
     assert built.telegram_bot_token is None
     assert built.telegram_operator_chat_id is None
     assert built.telegram_api_base_url == "https://api.telegram.org"
-    assert built.telegram_clave_timeout_seconds == 300
-    assert built.telegram_id_type_timeout_seconds == 300
-    assert built.telegram_poll_timeout_seconds == 30
-    assert built.telegram_max_clarifications == 2
+    assert built.telegram_clave_timeout_seconds == 30
     assert built.receipt_storage_dir == "./data/receipts"
     assert built.receipt_retention_days == 30
     assert built.release_watcher_enabled is False
@@ -371,32 +346,7 @@ def test_default_id_type_rejects_unknown_letter(monkeypatch: pytest.MonkeyPatch)
         assert built.banesco_default_id_type == letter
 
 
-def test_deprecated_aliases_work_and_import_time_settings_never_break(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Legacy names still resolve and an inert rail imports without any secret."""
-    monkeypatch.delenv("DAILY_PAY_LIMIT_VES", raising=False)
-    monkeypatch.setenv("DAILY_SMS_LIMIT_VES", "20000.00")
-    monkeypatch.delenv("PAYMENT_CONFIRMATION_TIMEOUT_SECONDS", raising=False)
-    monkeypatch.setenv("SMS_CONFIRMATION_TIMEOUT_SECONDS", "450")
-
-    legacy = Settings(_env_file=None)
-
-    assert legacy.daily_pay_limit_ves == Decimal("20000.00")
-    assert legacy.daily_sms_limit_ves == Decimal("20000.00")
-    assert legacy.payment_confirmation_timeout_seconds == 450
-    assert legacy.sms_confirmation_timeout_seconds == 450
-
-    monkeypatch.setenv("DAILY_PAY_LIMIT_VES", "21000.00")
-
-    preferred = Settings(_env_file=None)
-    assert preferred.daily_pay_limit_ves == Decimal("21000.00")
-    assert preferred.daily_sms_limit_ves == Decimal("21000.00")
-
-    _clear_rail_env(monkeypatch)
-    inert = Settings(_env_file=None)
-
-    assert inert.banesco_rail_enabled is False
-    assert inert.telegram_enabled is False
-    assert inert.banesco_online_password is None
-    assert inert.telegram_bot_token is None
+@pytest.mark.parametrize("seconds", [0, 31, 300])
+def test_bank_code_window_cannot_exceed_thirty_seconds(seconds: int) -> None:
+    with pytest.raises(ValidationError, match="telegram_clave_timeout_seconds"):
+        Settings(_env_file=None, telegram_clave_timeout_seconds=seconds)

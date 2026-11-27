@@ -28,7 +28,7 @@ def test_payment_tail_transitions_and_direct_completion_rejected() -> None:
     """R-BUY-012: the payment tail reaches release and never completes directly."""
     assert ALLOWED_TRANSITIONS[OrderStatus.SENDING_PAYMENT] == frozenset(
         {
-            OrderStatus.AWAITING_RELEASE,
+            OrderStatus.PAYMENT_CONFIRMED,
             OrderStatus.MANUAL_REVIEW,
             OrderStatus.FAILED,
         }
@@ -50,7 +50,8 @@ def test_payment_tail_transitions_and_direct_completion_rejected() -> None:
     )
 
     assert not OrderStatus.SENDING_PAYMENT.can_transition_to(OrderStatus.COMPLETED)
-    assert OrderStatus.SENDING_PAYMENT.can_transition_to(OrderStatus.AWAITING_RELEASE)
+    assert OrderStatus.SENDING_PAYMENT.can_transition_to(OrderStatus.PAYMENT_CONFIRMED)
+    assert OrderStatus.PAYMENT_CONFIRMED.can_transition_to(OrderStatus.AWAITING_RELEASE)
     assert OrderStatus.AWAITING_RELEASE.can_transition_to(OrderStatus.APPEALED)
     assert OrderStatus.APPEALED.can_transition_to(OrderStatus.COMPLETED)
 
@@ -108,7 +109,8 @@ def test_legal_transitions() -> None:
     assert OrderStatus.PAYMENT_DETECTED.can_transition_to(OrderStatus.VERIFYING_CACHICAMO)
     assert OrderStatus.VERIFYING_CACHICAMO.can_transition_to(OrderStatus.COMPLETED)
     assert OrderStatus.VERIFYING_CACHICAMO.can_transition_to(OrderStatus.SENDING_PAYMENT)
-    assert OrderStatus.SENDING_PAYMENT.can_transition_to(OrderStatus.AWAITING_RELEASE)
+    assert OrderStatus.SENDING_PAYMENT.can_transition_to(OrderStatus.PAYMENT_CONFIRMED)
+    assert OrderStatus.PAYMENT_CONFIRMED.can_transition_to(OrderStatus.AWAITING_RELEASE)
     assert OrderStatus.MANUAL_REVIEW.can_transition_to(OrderStatus.PENDING)
 
 

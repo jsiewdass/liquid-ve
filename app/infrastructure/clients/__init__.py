@@ -7,11 +7,6 @@ from app.infrastructure.clients.cachicamo_client import (
     CachicamoPaymentResult,
     CachicamoVerificationResult,
 )
-from app.infrastructure.clients.sms_gateway import (
-    IncomingSms,
-    SmsGatewayClient,
-    SmsSendResult,
-)
 
 __all__ = [
     "BaseAsyncHTTPClient",
@@ -20,7 +15,4 @@ __all__ = [
     "CachicamoClient",
     "CachicamoPaymentResult",
     "CachicamoVerificationResult",
-    "SmsGatewayClient",
-    "SmsSendResult",
-    "IncomingSms",
 ]
