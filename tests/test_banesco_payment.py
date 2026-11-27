@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -169,7 +170,9 @@ async def test_payment_authorization_is_one_time_and_persists_receipt(
         Path(test_settings.receipt_storage_dir) / f'{result["receipt_sha256"]}.png'
     )
     assert receipt.read_bytes() == PNG
-    assert receipt.stat().st_mode & 0o077 == 0
+    if os.name == "posix":
+        # POSIX permissions do not exist on Windows; the write is still atomic.
+        assert receipt.stat().st_mode & 0o077 == 0
     assert (await client.post(PAY, headers=operator)).status_code == 200
     assert bank.started == 1
     assert bank.codes == ["012345"]

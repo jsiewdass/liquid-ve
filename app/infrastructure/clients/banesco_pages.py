@@ -805,6 +805,23 @@ def _normalize_label(text: str) -> str:
     return collapsed.rstrip(":").strip()
 
 
+def _normalize_ves_text(value: str) -> str:
+    """Normalize a VES amount text so masked and plain forms compare equal.
+
+    The payment control renders thousands with ``.`` and decimals with ``,``
+    while the domain formatter omits the thousands separator.  Removing spaces
+    and thousands separators makes ``1.500,50`` and ``1500,50`` compare equal.
+
+    Args:
+        value: Amount text read from the control or produced by the formatter.
+
+    Returns:
+        The comparable representation.
+    """
+    cleaned = value.replace("\u00a0", " ").replace(" ", "").strip()
+    return cleaned.replace(".", "")
+
+
 def _parse_ves_amount(text: str) -> Decimal:
     """Parse a Venezuelan-format amount into a positive ``Decimal``.
 
@@ -1822,14 +1839,20 @@ class PagoMovilFormPage(BasePage):
         )
 
     async def _fill_amount(self, target: BanescoPaymentTarget) -> None:
-        """Render and fill the Decimal VES amount.
+        """Fill the masked amount control and verify the accepted value.
+
+        ``#monto`` carries ``data-thousands="."`` and ``data-decimal=","``, so a
+        plain value assignment is reinterpreted by the input mask and silently
+        corrupts the amount (``100,01`` became ``0,0010001`` live).  The value is
+        therefore typed as keystrokes over an empty field and read back; any
+        difference fails closed before a payment can be confirmed.
 
         Args:
             target: Payment target.
 
         Raises:
-            PaymentDataUnavailable: If the amount is not a positive finite
-                ``Decimal``.
+            PaymentDataUnavailable: If the amount is invalid or the control does
+                not end up holding the expected value.
         """
         amount = target.amount_ves
         if (
@@ -1840,8 +1863,37 @@ class PagoMovilFormPage(BasePage):
             raise PaymentDataUnavailable(
                 "Amount must be a positive finite Decimal"
             )
-        await self._expect(self.selectors["amount"])
-        await self._page.fill(self.selectors["amount"], format_ves_amount(amount))
+        selector = self.selectors["amount"]
+        await self._expect(selector)
+        expected = format_ves_amount(amount)
+        digits = str(int((amount * 100).to_integral_value()))
+
+        await self._page.fill(selector, "")
+        typer = getattr(self._page, "type", None)
+        if callable(typer):
+            try:
+                await typer(selector, digits, delay=20)
+            except TypeError:  # pragma: no cover - older signature
+                await typer(selector, digits)
+        else:
+            await self._page.fill(selector, expected)
+
+        presser = getattr(self._page, "press", None)
+        if callable(presser):
+            try:
+                # Blur the field so the input mask commits its formatted value.
+                await presser(selector, "Tab")
+            except Exception:  # noqa: BLE001 - optional interaction
+                pass
+
+        reader = getattr(self._page, "input_value", None)
+        if callable(reader):
+            actual = str(await reader(selector))
+            if _normalize_ves_text(actual) != _normalize_ves_text(expected):
+                raise PaymentDataUnavailable(
+                    "Amount control did not accept the expected value",
+                    details={"stage": self.stage, "field": "monto"},
+                )
 
     async def _fill_concept(self, target: BanescoPaymentTarget) -> None:
         """Fill the non-empty concept text.

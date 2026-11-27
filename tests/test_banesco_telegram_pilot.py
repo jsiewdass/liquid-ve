@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -163,9 +164,17 @@ def test_telegram_cli_can_load_without_banking_configuration(tmp_path):
     result = subprocess.run(
         [sys.executable, str(script), "--help"],
         cwd=tmp_path,
-        env={"DEBUG": "release"},
+        env={
+            **os.environ,
+            "DEBUG": "release",
+            # Windows consoles default to a legacy code page and the CLI help
+            # contains non-ASCII characters.
+            "PYTHONIOENCODING": "utf-8",
+        },
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert result.returncode == 0, result.stderr
     assert "--execute-payment" in result.stdout
